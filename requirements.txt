@@ -1,0 +1,3 @@
+# Web framework + standard extras (uvicorn, httpx, python-multipart, jinja2,
+# email-validator, pydantic-settings, fastapi-cli, etc.)
+fastapi[standard]==0.142.2
