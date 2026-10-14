@@ -24,6 +24,7 @@ from ingestion.ingestion_metadata_contract import (
     create_metadata_record,
 )
 from ingestion.ingestion_status_constants import INGESTION_STATUS_QUEUED
+from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
 
 
 class UploadFileInput(object):
@@ -63,9 +64,13 @@ class IngestionUploadService(object):
       - 3.x async queue/status lifecycle
     """
 
-    def __init__(self, config=None):
+    def __init__(self, config=None,  status_repository=None):
         # type: (IngestionConfig) -> None
         self.config = config or IngestionConfig()
+        self.status_repository = (
+            status_repository if status_repository is not None
+            else SQLiteIngestionStatusRepository()
+        )
 
     def create_upload_request(self, files):
         # type: (list) -> dict
@@ -294,6 +299,8 @@ class IngestionUploadService(object):
             ingestion_source=file_input.source,
             document_id=document_id,
         )
+
+        self.status_repository.create_queued(metadata, file_input.temp_file_path)
 
         return {
             "status": "accepted",
