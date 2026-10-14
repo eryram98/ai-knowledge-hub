@@ -1,3 +1,4 @@
+from contextlib import closing
 import os
 import sqlite3
 import sys
@@ -40,7 +41,7 @@ class TestQueuedPersistence(unittest.TestCase):
     def test_rejected_file_is_not_persisted(self):
         response = self.service.create_upload_request([self.file_input("bad.exe")])
         self.assertEqual(response["files"][0]["status"], "rejected")
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ingestion_documents").fetchone()[0], 0)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ingestion_status_history").fetchone()[0], 0)
 
@@ -61,18 +62,18 @@ class TestQueuedPersistence(unittest.TestCase):
         self.assertEqual(len(self.repository.get_status_history(entry["document_id"])), 1)
 
     def test_history_failure_rolls_back_document(self):
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("CREATE TRIGGER reject_history BEFORE INSERT ON ingestion_status_history BEGIN SELECT RAISE(ABORT, 'test failure'); END")
         entry = self.service.create_upload_request([self.file_input()])["files"][0]
         self.assertEqual(entry["status"], "rejected")
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ingestion_documents").fetchone()[0], 0)
 
     def test_partial_batch_persists_only_accepted_files(self):
         response = self.service.create_upload_request([self.file_input(), self.file_input("bad.exe")])
         self.assertEqual(response["status"], "partial")
         self.assertIsNotNone(self.repository.get_document(response["files"][0]["document_id"]))
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ingestion_documents").fetchone()[0], 1)
 
     def test_unknown_document(self):

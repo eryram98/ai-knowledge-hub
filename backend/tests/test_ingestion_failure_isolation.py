@@ -1,5 +1,6 @@
 """Task 3.4: real background-worker batches with file-local failures."""
 
+from contextlib import closing
 import os
 import sqlite3
 import sys
@@ -90,7 +91,7 @@ class TestIngestionFailureIsolation(unittest.TestCase):
 
     def test_file_specific_storage_failure_does_not_block_later_file(self):
         broken_id = self.entries[1]["document_id"]
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             # Test-only trigger fails this document's processing history insert.
             connection.execute(
                 "CREATE TRIGGER reject_one_file BEFORE INSERT ON ingestion_status_history "

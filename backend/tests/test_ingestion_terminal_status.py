@@ -1,5 +1,6 @@
 """Task 3.5: durable terminal states, transition rules, and worker outcomes."""
 
+from contextlib import closing
 import os
 import sqlite3
 import sys
@@ -62,7 +63,7 @@ class TestTerminalStatus(unittest.TestCase):
 
     def test_terminal_history_failure_rolls_back_status(self):
         self.repository.mark_processing(self.document_id)
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("CREATE TRIGGER reject_terminal BEFORE INSERT ON ingestion_status_history WHEN NEW.status IN ('success', 'failed') BEGIN SELECT RAISE(ABORT, 'test storage failure'); END")
         for finish in (lambda: self.repository.mark_success(self.document_id),
                        lambda: self.repository.mark_failed(self.document_id, "Failure")):
@@ -99,7 +100,7 @@ class TestTerminalStatus(unittest.TestCase):
         self.assertEqual(self.repository.get_status_history(self.document_id)[-1]["reason"], "RuntimeError: Text extraction failed")
 
     def test_worker_logs_terminal_storage_failure_without_false_success(self):
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("CREATE TRIGGER reject_success BEFORE INSERT ON ingestion_status_history WHEN NEW.status = 'success' BEGIN SELECT RAISE(ABORT, 'test storage failure'); END")
         with self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
             self.run_one(lambda job: None)
