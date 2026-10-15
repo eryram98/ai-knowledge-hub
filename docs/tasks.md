@@ -27,7 +27,7 @@ Target: progress presentation around Oct 27. Milestones: M4 knowledge pipeline (
   - [x] 3.4 Isolate failures so one file does not block others.
   - [x] 3.5 Persist final `success` or `failed` status with failure reason.
   - [x] 3.6 Add status query service for UI polling and batch progress.
-- [x] **4.0 Implement format-specific text extraction**
+- [ ] **4.0 Implement format-specific text extraction**
   - [x] 4.1 Implement the extractor interface and extension-based dispatcher.
   - [x] 4.2 Implement encoding-safe TXT extraction.
   - [x] 4.3 Implement MD extraction, preserving raw Markdown.
