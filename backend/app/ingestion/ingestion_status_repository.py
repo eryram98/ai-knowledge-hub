@@ -5,6 +5,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
+from ingestion.ingestion_error_model import ERROR_INTERNAL_FAILURE, is_valid_error_code
 from ingestion.ingestion_metadata_contract import META_KB_ID, validate_metadata_contract
 from ingestion.ingestion_status_constants import (
     INGESTION_STATUS_QUEUED, INGESTION_STATUS_PROCESSING,
@@ -51,7 +52,8 @@ class SQLiteIngestionStatusRepository(object):
                     document_id TEXT NOT NULL REFERENCES ingestion_documents(document_id),
                     status TEXT NOT NULL,
                     timestamp TEXT NOT NULL,
-                    reason TEXT
+                    reason TEXT,
+                    error_code TEXT
                 );
             """)
         finally:
@@ -123,14 +125,17 @@ class SQLiteIngestionStatusRepository(object):
             connection.close()
 
     def mark_success(self, document_id):
-        return self._finish(document_id, INGESTION_STATUS_SUCCESS, None)
+        return self._finish(document_id, INGESTION_STATUS_SUCCESS, None, None)
 
-    def mark_failed(self, document_id, reason):
+    def mark_failed(self, document_id, reason, error_code=ERROR_INTERNAL_FAILURE):
+        """Unknown error codes are stored as internal_failure."""
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("Failure reason must be a non-empty string")
-        return self._finish(document_id, INGESTION_STATUS_FAILED, reason.strip())
+        if not is_valid_error_code(error_code):
+            error_code = ERROR_INTERNAL_FAILURE
+        return self._finish(document_id, INGESTION_STATUS_FAILED, reason.strip(), error_code)
 
-    def _finish(self, document_id, status, reason):
+    def _finish(self, document_id, status, reason, error_code):
         """Finish processing atomically; identical terminal calls are idempotent.
 
         A queued or terminal document cannot be changed to another terminal
@@ -157,8 +162,8 @@ class SQLiteIngestionStatusRepository(object):
                     raise ValueError("Cannot transition {0} to {1}".format(row["ingestion_status"], status))
                 connection.execute(
                     "INSERT INTO ingestion_status_history "
-                    "(document_id, status, timestamp, reason) VALUES (?, ?, ?, ?)",
-                    (document_id, status, timestamp, reason),
+                    "(document_id, status, timestamp, reason, error_code) VALUES (?, ?, ?, ?, ?)",
+                    (document_id, status, timestamp, reason, error_code),
                 )
             return True
         finally:
@@ -192,7 +197,7 @@ class SQLiteIngestionStatusRepository(object):
             if row is None:
                 return None
             history = connection.execute(
-                "SELECT document_id, status, timestamp, reason "
+                "SELECT document_id, status, timestamp, reason, error_code "
                 "FROM ingestion_status_history WHERE document_id = ? ORDER BY id",
                 (document_id,),
             ).fetchall()
@@ -207,7 +212,7 @@ class SQLiteIngestionStatusRepository(object):
         connection = self._connect()
         try:
             rows = connection.execute(
-                "SELECT document_id, status, timestamp, reason "
+                "SELECT document_id, status, timestamp, reason, error_code "
                 "FROM ingestion_status_history WHERE document_id = ? ORDER BY id",
                 (document_id,),
             ).fetchall()

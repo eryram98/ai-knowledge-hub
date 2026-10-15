@@ -4,7 +4,10 @@ Ingestion configuration settings.
 Python 3.6 compatible.
 """
 
+import logging
 import os
+
+LOGGER = logging.getLogger(__name__)
 
 # Load the repo-root .env once. Real environment variables take precedence.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -22,6 +25,10 @@ DEFAULT_ALLOWED_KB_IDS = ("kb_placeholder_a", "kb_placeholder_b")
 DEFAULT_MAX_FILE_SIZE_MB = 25
 DEFAULT_MAX_FILES_PER_BATCH = 20
 DEFAULT_DUPLICATE_POLICY = "allow"  # allow | block_exact | version
+# Chunk size and overlap are measured in characters, not tokens: no tokenizer
+# is chosen yet (it depends on the embedding model decision).
+DEFAULT_CHUNK_SIZE_CHARS = 1000
+DEFAULT_CHUNK_OVERLAP_CHARS = 200
 
 ALLOWED_DUPLICATE_POLICIES = (
     "allow",
@@ -80,6 +87,27 @@ def _normalize_kb_ids(raw_kb_ids):
     return tuple(parts) if parts else DEFAULT_ALLOWED_KB_IDS
 
 
+def _resolve_chunking(raw_size, raw_overlap):
+    # type: (str, str) -> tuple
+    """
+    Return (chunk_size, overlap) in characters. A size <= 0 falls back to the
+    default. An overlap < 0 or >= size falls back to size // 5 with a warning,
+    so a typo in .env does not silently change chunking.
+    """
+    size = _to_int(raw_size, DEFAULT_CHUNK_SIZE_CHARS)
+    if size <= 0:
+        size = DEFAULT_CHUNK_SIZE_CHARS
+    overlap = _to_int(raw_overlap, DEFAULT_CHUNK_OVERLAP_CHARS)
+    if overlap < 0 or overlap >= size:
+        fallback = size // 5
+        LOGGER.warning(
+            "INGESTION_CHUNK_OVERLAP_CHARS=%r is invalid for chunk size %d; using %d",
+            raw_overlap, size, fallback,
+        )
+        overlap = fallback
+    return size, overlap
+
+
 class IngestionConfig(object):
     """
     Runtime ingestion config object.
@@ -89,6 +117,8 @@ class IngestionConfig(object):
       - INGESTION_MAX_FILES_PER_BATCH
       - INGESTION_DUPLICATE_POLICY
       - INGESTION_ALLOWED_KB_IDS
+      - INGESTION_CHUNK_SIZE_CHARS
+      - INGESTION_CHUNK_OVERLAP_CHARS
     """
 
     def __init__(self):
@@ -110,6 +140,11 @@ class IngestionConfig(object):
         raw_kb_ids = os.getenv("INGESTION_ALLOWED_KB_IDS", "")
         self.allowed_kb_ids = _normalize_kb_ids(raw_kb_ids)
 
+        self.chunk_size_chars, self.chunk_overlap_chars = _resolve_chunking(
+            os.getenv("INGESTION_CHUNK_SIZE_CHARS", ""),
+            os.getenv("INGESTION_CHUNK_OVERLAP_CHARS", ""),
+        )
+
     @property
     def max_file_size_bytes(self):
         # type: () -> int
@@ -124,4 +159,6 @@ class IngestionConfig(object):
             "max_files_per_batch": self.max_files_per_batch,
             "duplicate_policy": self.duplicate_policy,
             "allowed_kb_ids": self.allowed_kb_ids,
+            "chunk_size_chars": self.chunk_size_chars,
+            "chunk_overlap_chars": self.chunk_overlap_chars,
         }

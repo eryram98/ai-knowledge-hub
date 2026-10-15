@@ -37,8 +37,8 @@ Target: progress presentation around Oct 27. Milestones: M4 knowledge pipeline (
   - [ ] **4.7 (added, core) Implement a table-aware PDF extractor and register it on the dispatcher. Keep the baseline — next.**
   - [ ] 4.8 (added, core) Analyze document structure (headings, tables, length) and display a chunking and indexing strategy recommendation.
 - [ ] **5.0 Implement chunking, embeddings, and keyword indexing**
-  - [ ] 5.1 Configure chunk size and overlap. This fixed-size chunker is the baseline.
-  - [ ] 5.2 Handle empty, short, and very long text safely.
+  - [x] 5.1 Configure chunk size and overlap. This fixed-size chunker is the baseline.
+  - [x] 5.2 Handle empty, short, and very long text safely.
   - [ ] 5.3 Generate embeddings with retry-safe failure propagation. Blocked until the embedding model is decided.
   - [ ] 5.4 Implement keyword (BM25) indexing, one index per KB.
   - [ ] 5.5 Persist links between documents, chunks, embeddings, and indexes.
@@ -46,10 +46,10 @@ Target: progress presentation around Oct 27. Milestones: M4 knowledge pipeline (
   - [ ] 5.7 (added) Build a vector index per KB. Blocked until the vector store is decided.
 - [ ] **6.0 Implement artifact and metadata persistence**
   - [x] 6.1 Add repository methods for file metadata and status history.
-  - [ ] 6.2 Persist full extracted text.
-  - [ ] 6.3 Persist chunks and embedding/index references.
+  - [x] 6.2 Persist full extracted text.
+  - [ ] 6.3 Persist chunks and embedding/index references. (partial: chunks are persisted; embedding and index references are left, blocked on 5.3, 5.4, 5.7)
   - [x] 6.4 Persist source metadata with v1 source value `UI`.
-  - [ ] 6.5 Make persistence idempotent where practical for safe reprocessing.
+  - [x] 6.5 Make persistence idempotent where practical for safe reprocessing.
 - [ ] **7.0 Implement configurable duplicate handling**
   - [ ] 7.1 Calculate file checksums during intake.
   - [ ] 7.2 Resolve duplicate policy from configuration.
@@ -60,7 +60,7 @@ Target: progress presentation around Oct 27. Milestones: M4 knowledge pipeline (
 - [ ] **8.0 Expose backend capabilities required by the UI**
   - [ ] 8.1 Define upload, inventory, status, question, answer, and source API contracts.
   - [ ] 8.2 Add an HTTP upload handler using the existing intake service (FastAPI, as on the old `feature/ingestion` branch).
-  - [ ] 8.3 Connect accepted uploads to the queue, worker, and actual processing stages.
+  - [ ] 8.3 Connect accepted uploads to the queue, worker, and actual processing stages. (partial: the worker runs extract → chunk → persist through `DocumentProcessor`; left: the upload service enqueues accepted files, and a non-demo worker entrypoint)
   - [ ] 8.4 Expose document inventory and status through HTTP endpoints.
   - [x] 8.5 Keep lifecycle labels consistent across services.
   - [ ] 8.6 Retrieve relevant chunks using embeddings and keyword search.
@@ -100,3 +100,4 @@ Target: progress presentation around Oct 27. Milestones: M4 knowledge pipeline (
 - 2026-10-14 · Ethan · `feat/text-extraction` · Tasks 4.1–4.6, plus a fix so SQLite tests pass on Windows. 92 tests.
 - 2026-10-15 · Ethan · `chore/claude-code-setup` · Added CLAUDE.md, the `/finish-feature` and `/decide` skills, this task list, and the decision log.
 - 2026-10-15 · Ethan · `feat/kb-id` · Tasks 1.6, 1.7, 2.6: `kb_id` in metadata, SQLite (indexed column) and upload intake; canonical `unknown_kb` error; allowed KBs from `INGESTION_ALLOWED_KB_IDS` (`.env`, two placeholders); stage contracts now enforce `@abstractmethod`; SQLite WAL mode; upload tests use temp DBs and the shadowed test class runs. Requirements moved to root `requirements.txt`. 112 tests.
+- 2026-10-15 · Ethan · `feat/pipeline-baseline` · Tasks 5.1, 5.2, 6.2, 6.5; 6.3 and 8.3 partial. Fixed-size character chunker (`fixed-size-char-baseline`, Table Challenge baseline; size/overlap from `.env`), full-text and chunk persistence in SQLite (idempotent, keyed by chunker), `DocumentProcessor` wired into the worker, canonical `empty_content` code, `error_code` stored on failures, end-to-end TXT/MD/PDF test. 142 tests.

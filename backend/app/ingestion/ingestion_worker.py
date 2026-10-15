@@ -4,9 +4,19 @@ import argparse
 import logging
 from threading import Event, Thread
 
+from ingestion.ingestion_error_model import (
+    ERROR_INTERNAL_FAILURE, IngestionStageError, is_valid_error_code,
+)
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
 
 LOGGER = logging.getLogger(__name__)
+
+
+def failure_code(exc):
+    """Canonical code for a processing failure; uncoded exceptions are internal_failure."""
+    if isinstance(exc, IngestionStageError) and is_valid_error_code(exc.error_code):
+        return exc.error_code
+    return ERROR_INTERNAL_FAILURE
 
 
 def run_worker(job_queue, process_job, stop_event, poll_interval=0.1, status_repository=None):
@@ -36,7 +46,7 @@ def run_worker(job_queue, process_job, stop_event, poll_interval=0.1, status_rep
                 LOGGER.exception("Document processing failed: %s", job.document_id)
                 if status_repository is not None:
                     reason = "{0}: {1}".format(type(exc).__name__, str(exc) or "Processing failed")
-                    status_repository.mark_failed(job.document_id, reason)
+                    status_repository.mark_failed(job.document_id, reason, failure_code(exc))
             else:
                 if status_repository is not None:
                     status_repository.mark_success(job.document_id)

@@ -36,6 +36,7 @@ class IngestionStatusService(object):
             "completed_at": history[-1]["timestamp"] if terminal else None,
             "updated_at": history[-1]["timestamp"],
             "failure_reason": history[-1]["reason"] if status == INGESTION_STATUS_FAILED else None,
+            "failure_code": history[-1]["error_code"] if status == INGESTION_STATUS_FAILED else None,
             "is_terminal": terminal,
             "should_poll": not terminal,
             "history": history,

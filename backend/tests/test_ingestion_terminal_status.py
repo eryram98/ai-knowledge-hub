@@ -12,7 +12,11 @@ APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
+from ingestion.ingestion_error_model import (
+    ERROR_EMPTY_CONTENT, ERROR_INTERNAL_FAILURE, IngestionStageError,
+)
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
+from ingestion.ingestion_status_service import IngestionStatusService
 from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
@@ -102,6 +106,44 @@ class TestTerminalStatus(unittest.TestCase):
             self.run_one(fail)
         self.assertEqual(self.repository.get_document(self.document_id)["ingestion_status"], "failed")
         self.assertEqual(self.repository.get_status_history(self.document_id)[-1]["reason"], "RuntimeError: Text extraction failed")
+
+    def test_failure_code_is_stored(self):
+        self.repository.mark_processing(self.document_id)
+        self.repository.mark_failed(self.document_id, "Nothing to index", ERROR_EMPTY_CONTENT)
+        history = SQLiteIngestionStatusRepository(self.path).get_status_history(self.document_id)
+        self.assertEqual(history[-1]["error_code"], ERROR_EMPTY_CONTENT)
+        self.assertIsNone(history[0]["error_code"])
+        status = IngestionStatusService(self.repository).get_document_status(self.document_id)
+        self.assertEqual(status["failure_code"], ERROR_EMPTY_CONTENT)
+
+    def test_unknown_failure_code_is_normalized(self):
+        self.repository.mark_processing(self.document_id)
+        self.repository.mark_failed(self.document_id, "Odd failure", "made_up_code")
+        self.assertEqual(self.repository.get_status_history(self.document_id)[-1]["error_code"], ERROR_INTERNAL_FAILURE)
+
+    def test_success_has_no_failure_code(self):
+        self.run_one(lambda job: None)
+        status = IngestionStatusService(self.repository).get_document_status(self.document_id)
+        self.assertIsNone(status["failure_code"])
+        self.assertIsNone(self.repository.get_status_history(self.document_id)[-1]["error_code"])
+
+    def test_worker_stores_stage_error_code(self):
+        def fail(job):
+            raise IngestionStageError(ERROR_EMPTY_CONTENT, "Document has no text to chunk.")
+
+        with self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
+            self.run_one(fail)
+        last = self.repository.get_status_history(self.document_id)[-1]
+        self.assertEqual(last["error_code"], ERROR_EMPTY_CONTENT)
+        self.assertEqual(last["reason"], "IngestionStageError: Document has no text to chunk.")
+
+    def test_worker_stores_internal_failure_for_uncoded_errors(self):
+        def fail(job):
+            raise RuntimeError("boom")
+
+        with self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
+            self.run_one(fail)
+        self.assertEqual(self.repository.get_status_history(self.document_id)[-1]["error_code"], ERROR_INTERNAL_FAILURE)
 
     def test_worker_logs_terminal_storage_failure_without_false_success(self):
         with closing(sqlite3.connect(self.path)) as connection, connection:

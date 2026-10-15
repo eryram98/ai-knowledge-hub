@@ -29,6 +29,8 @@ class ChunkingStage(metaclass=ABCMeta):
         [
             {"chunk_id": str, "text": str, "start": int, "end": int}
         ]
+        Pipeline chunkers also return document_id, kb_id, chunk_index,
+        page_start, page_end (None outside PDFs) and chunker (its name).
         """
         raise NotImplementedError
 

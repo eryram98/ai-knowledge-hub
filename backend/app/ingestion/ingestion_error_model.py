@@ -13,6 +13,7 @@ ERROR_BATCH_LIMIT_EXCEEDED = "batch_limit_exceeded"
 ERROR_DUPLICATE_BLOCKED = "duplicate_blocked"
 ERROR_INTERNAL_FAILURE = "internal_failure"
 ERROR_UNKNOWN_KB = "unknown_kb"
+ERROR_EMPTY_CONTENT = "empty_content"
 
 INGESTION_ERROR_CODES = (
     ERROR_UNSUPPORTED_FORMAT,
@@ -24,6 +25,7 @@ INGESTION_ERROR_CODES = (
     ERROR_DUPLICATE_BLOCKED,
     ERROR_INTERNAL_FAILURE,
     ERROR_UNKNOWN_KB,
+    ERROR_EMPTY_CONTENT,
 )
 
 DEFAULT_ERROR_MESSAGES = {
@@ -36,7 +38,23 @@ DEFAULT_ERROR_MESSAGES = {
     ERROR_DUPLICATE_BLOCKED: "Duplicate file blocked by the active duplicate policy.",
     ERROR_INTERNAL_FAILURE: "An internal error occurred during ingestion.",
     ERROR_UNKNOWN_KB: "Unknown knowledge base. Choose one of the configured KBs.",
+    ERROR_EMPTY_CONTENT: "The document contains no text to index.",
 }
+
+
+class IngestionStageError(Exception):
+    """
+    Base for pipeline stage errors that carry a canonical error code.
+
+    str(exc) is the human-readable detail; the worker stores error_code
+    alongside the failure reason in the status history.
+    """
+
+    def __init__(self, error_code, details):
+        # type: (str, str) -> None
+        super(IngestionStageError, self).__init__(details)
+        self.error_code = error_code
+        self.details = details
 
 
 def is_valid_error_code(error_code):

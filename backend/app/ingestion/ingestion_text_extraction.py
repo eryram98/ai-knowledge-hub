@@ -23,6 +23,7 @@ from ingestion.ingestion_error_model import (
     ERROR_INTERNAL_FAILURE,
     ERROR_UNREADABLE_FILE,
     ERROR_UNSUPPORTED_FORMAT,
+    IngestionStageError,
     build_ingestion_error,
 )
 from ingestion.ingestion_stage_contracts import ExtractionStage
@@ -32,19 +33,13 @@ from ingestion.ingestion_stage_contracts import ExtractionStage
 # Errors (4.6)
 # ---------------------------------------------------------------------------
 
-class ExtractionError(Exception):
+class ExtractionError(IngestionStageError):
     """
     Raised by extractors with a canonical ingestion error code.
 
     str(exc) is the human-readable detail, so the worker's failure reason
     ("ExtractionError: <detail>") stays readable in the status history.
     """
-
-    def __init__(self, error_code, details):
-        # type: (str, str) -> None
-        super(ExtractionError, self).__init__(details)
-        self.error_code = error_code
-        self.details = details
 
 
 def map_extraction_exception(exc, file_name=None):
