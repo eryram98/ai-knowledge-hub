@@ -12,6 +12,7 @@ ERROR_FILE_TOO_LARGE = "file_too_large"
 ERROR_BATCH_LIMIT_EXCEEDED = "batch_limit_exceeded"
 ERROR_DUPLICATE_BLOCKED = "duplicate_blocked"
 ERROR_INTERNAL_FAILURE = "internal_failure"
+ERROR_UNKNOWN_KB = "unknown_kb"
 
 INGESTION_ERROR_CODES = (
     ERROR_UNSUPPORTED_FORMAT,
@@ -22,6 +23,7 @@ INGESTION_ERROR_CODES = (
     ERROR_BATCH_LIMIT_EXCEEDED,
     ERROR_DUPLICATE_BLOCKED,
     ERROR_INTERNAL_FAILURE,
+    ERROR_UNKNOWN_KB,
 )
 
 DEFAULT_ERROR_MESSAGES = {
@@ -33,6 +35,7 @@ DEFAULT_ERROR_MESSAGES = {
     ERROR_BATCH_LIMIT_EXCEEDED: "Upload batch exceeds the maximum allowed number of files.",
     ERROR_DUPLICATE_BLOCKED: "Duplicate file blocked by the active duplicate policy.",
     ERROR_INTERNAL_FAILURE: "An internal error occurred during ingestion.",
+    ERROR_UNKNOWN_KB: "Unknown knowledge base. Choose one of the configured KBs.",
 }
 
 

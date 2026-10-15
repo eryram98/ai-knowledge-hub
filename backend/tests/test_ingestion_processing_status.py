@@ -14,9 +14,13 @@ if APP_DIR not in sys.path:
 
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
+from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_worker import run_worker
 from threading import Event
+
+# First configured KB, so a local .env with real KB IDs does not break tests
+KB_ID = IngestionConfig().allowed_kb_ids[0]
 
 
 class TestProcessingStatus(unittest.TestCase):
@@ -28,7 +32,7 @@ class TestProcessingStatus(unittest.TestCase):
         service = IngestionUploadService(status_repository=self.repository)
         self.entry = service.create_upload_request([
             UploadFileInput("notes.txt", 10, "2026-10-10T12:00:00Z")
-        ])["files"][0]
+        ], KB_ID)["files"][0]
         self.document_id = self.entry["document_id"]
 
     def test_processing_survives_restart_and_duplicate_claim(self):

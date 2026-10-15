@@ -13,14 +13,16 @@ META_FILE_TYPE = "file_type"
 META_FILE_SIZE_BYTES = "file_size_bytes"
 META_UPLOAD_TIMESTAMP = "upload_timestamp"
 META_INGESTION_SOURCE = "ingestion_source"
+META_KB_ID = "kb_id"
 
-# Required v1 metadata fields from PRD
+# Required v1 metadata fields from PRD, plus the target knowledge base
 REQUIRED_METADATA_FIELDS = (
     META_ORIGINAL_FILENAME,
     META_FILE_TYPE,
     META_FILE_SIZE_BYTES,
     META_UPLOAD_TIMESTAMP,
     META_INGESTION_SOURCE,
+    META_KB_ID,
 )
 
 # v1 source
@@ -104,6 +106,10 @@ def validate_metadata_contract(metadata):
     if source not in ALLOWED_INGESTION_SOURCES:
         errors.append("ingestion_source must be one of: {0}".format(", ".join(ALLOWED_INGESTION_SOURCES)))
 
+    # Format only: the allowed KB list is configuration, checked at intake.
+    if not _is_non_empty_string(metadata.get(META_KB_ID)):
+        errors.append("kb_id must be a non-empty string")
+
     return len(errors) == 0, errors
 
 
@@ -112,10 +118,11 @@ def create_metadata_record(
     file_type,
     file_size_bytes,
     upload_timestamp,
+    kb_id,
     ingestion_source=INGESTION_SOURCE_UI,
     document_id=None
 ):
-    # type: (str, str, int, str, str, str) -> dict
+    # type: (str, str, int, str, str, str, str) -> dict
     """
     Build metadata record in canonical format.
     """
@@ -125,6 +132,7 @@ def create_metadata_record(
         META_FILE_SIZE_BYTES: file_size_bytes,
         META_UPLOAD_TIMESTAMP: upload_timestamp,
         META_INGESTION_SOURCE: ingestion_source,
+        META_KB_ID: kb_id,
     }
     if document_id is not None:
         record[META_DOCUMENT_ID] = document_id

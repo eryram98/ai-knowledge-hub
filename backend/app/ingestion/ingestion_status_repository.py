@@ -5,7 +5,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-from ingestion.ingestion_metadata_contract import validate_metadata_contract
+from ingestion.ingestion_metadata_contract import META_KB_ID, validate_metadata_contract
 from ingestion.ingestion_status_constants import (
     INGESTION_STATUS_QUEUED, INGESTION_STATUS_PROCESSING,
     INGESTION_STATUS_SUCCESS, INGESTION_STATUS_FAILED,
@@ -32,22 +32,28 @@ class SQLiteIngestionStatusRepository(object):
         os.makedirs(os.path.dirname(self.database_path), exist_ok=True)
         connection = self._connect()
         try:
+            # WAL is stored in the database file, so every later connection uses it.
+            # It lets status polling read while the worker writes.
+            connection.execute("PRAGMA journal_mode=WAL")
             connection.executescript("""
-                                     CREATE TABLE IF NOT EXISTS ingestion_documents (
-                                                                                        document_id TEXT PRIMARY KEY,
-                                                                                        metadata_json TEXT NOT NULL,
-                                                                                        temp_file_path TEXT,
-                                                                                        ingestion_status TEXT NOT NULL,
-                                                                                        queued_at TEXT NOT NULL
-                                     );
-                                     CREATE TABLE IF NOT EXISTS ingestion_status_history (
-                                                                                             id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                                                                             document_id TEXT NOT NULL REFERENCES ingestion_documents(document_id),
-                                         status TEXT NOT NULL,
-                                         timestamp TEXT NOT NULL,
-                                         reason TEXT
-                                         );
-                                     """)
+                CREATE TABLE IF NOT EXISTS ingestion_documents (
+                    document_id TEXT PRIMARY KEY,
+                    kb_id TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL,
+                    temp_file_path TEXT,
+                    ingestion_status TEXT NOT NULL,
+                    queued_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ingestion_documents_kb_id
+                    ON ingestion_documents(kb_id);
+                CREATE TABLE IF NOT EXISTS ingestion_status_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    document_id TEXT NOT NULL REFERENCES ingestion_documents(document_id),
+                    status TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    reason TEXT
+                );
+            """)
         finally:
             connection.close()
 
@@ -70,8 +76,10 @@ class SQLiteIngestionStatusRepository(object):
         try:
             with connection:
                 connection.execute(
-                    "INSERT INTO ingestion_documents VALUES (?, ?, ?, ?, ?)",
-                    (document_id, json.dumps(metadata), temp_file_path,
+                    "INSERT INTO ingestion_documents "
+                    "(document_id, kb_id, metadata_json, temp_file_path, ingestion_status, queued_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (document_id, metadata[META_KB_ID], json.dumps(metadata), temp_file_path,
                      INGESTION_STATUS_QUEUED, timestamp),
                 )
                 connection.execute(

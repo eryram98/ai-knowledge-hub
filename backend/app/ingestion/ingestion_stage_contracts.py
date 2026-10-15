@@ -6,9 +6,7 @@ Python 3.6 compatible.
 from abc import ABCMeta, abstractmethod
 
 
-class ExtractionStage(object):
-    __metaclass__ = ABCMeta
-
+class ExtractionStage(metaclass=ABCMeta):
     @abstractmethod
     def extract_text(self, file_path, file_type):
         # type: (str, str) -> dict
@@ -22,9 +20,7 @@ class ExtractionStage(object):
         raise NotImplementedError
 
 
-class ChunkingStage(object):
-    __metaclass__ = ABCMeta
-
+class ChunkingStage(metaclass=ABCMeta):
     @abstractmethod
     def chunk_text(self, full_text, metadata=None):
         # type: (str, dict) -> list
@@ -37,9 +33,7 @@ class ChunkingStage(object):
         raise NotImplementedError
 
 
-class EmbeddingStage(object):
-    __metaclass__ = ABCMeta
-
+class EmbeddingStage(metaclass=ABCMeta):
     @abstractmethod
     def generate_embeddings(self, chunks):
         # type: (list) -> list
@@ -52,9 +46,7 @@ class EmbeddingStage(object):
         raise NotImplementedError
 
 
-class IndexingStage(object):
-    __metaclass__ = ABCMeta
-
+class IndexingStage(metaclass=ABCMeta):
     @abstractmethod
     def index_document(self, document_id, full_text, chunks, metadata=None):
         # type: (str, str, list, dict) -> dict

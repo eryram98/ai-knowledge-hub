@@ -13,9 +13,13 @@ if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
+from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
 from ingestion.ingestion_worker import run_worker
+
+# First configured KB, so a local .env with real KB IDs does not break tests
+KB_ID = IngestionConfig().allowed_kb_ids[0]
 
 
 class TestTerminalStatus(unittest.TestCase):
@@ -26,7 +30,7 @@ class TestTerminalStatus(unittest.TestCase):
         self.repository = SQLiteIngestionStatusRepository(self.path)
         entry = IngestionUploadService(status_repository=self.repository).create_upload_request([
             UploadFileInput("notes.txt", 10, "2026-10-10T12:00:00Z")
-        ])["files"][0]
+        ], KB_ID)["files"][0]
         self.document_id = entry["document_id"]
 
     def test_success_persists_without_duplicate_history(self):

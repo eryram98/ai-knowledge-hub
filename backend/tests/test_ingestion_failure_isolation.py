@@ -14,8 +14,12 @@ if APP_DIR not in sys.path:
 
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
+from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_worker import start_background_worker
+
+# First configured KB, so a local .env with real KB IDs does not break tests
+KB_ID = IngestionConfig().allowed_kb_ids[0]
 
 
 class ObservedQueue(InMemoryIngestionJobQueue):
@@ -43,7 +47,7 @@ class TestIngestionFailureIsolation(unittest.TestCase):
         response = service.create_upload_request([
             UploadFileInput(name, 10, "2026-10-10T12:00:00Z")
             for name in ("first.txt", "broken.txt", "last.txt")
-        ])
+        ], KB_ID)
         self.entries = response["files"]
         self.assertEqual(response["status"], "received")
         self.queue = ObservedQueue(len(self.entries))

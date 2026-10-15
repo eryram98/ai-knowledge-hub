@@ -23,14 +23,14 @@ querying, RBAC, Azure deployment, production security.
 
 - `backend/app/ingestion/`: pipeline modules. Imports use `from ingestion.<module> import ...`, with `backend/app` on `sys.path`.
 - `backend/tests/`: `unittest` tests. Each test file adds `backend/app` to `sys.path`.
-- `backend/requirements.txt`: direct dependencies only. Do not paste a full `pip freeze`.
+- `requirements.txt` (repo root): direct dependencies only. Do not paste a full `pip freeze`.
 - `docs/tasks.md`: the task list. It is the source of truth for progress.
 - `docs/decisions.md`: decision log.
 
 ## Commands (Windows, PowerShell, from the repo root)
 
 - Run tests: `python -m unittest discover -s backend\tests`
-- Install dependencies: `pip install -r backend\requirements.txt`
+- Install dependencies: `pip install -r requirements.txt`
 - PowerShell has no `<` redirection. Pass files as arguments.
 
 ## Conventions

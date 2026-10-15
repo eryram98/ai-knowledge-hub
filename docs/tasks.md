@@ -11,15 +11,15 @@ Target: progress presentation around Oct 27. Milestones: M4 knowledge pipeline (
   - [x] 1.3 Define standardized errors and messages.
   - [x] 1.4 Define metadata and persistence contracts.
   - [x] 1.5 Define extraction, chunking, embedding, and indexing interfaces.
-  - [ ] **1.6 (added) Add `kb_id` to the metadata contract and persistence — next.**
-  - [ ] 1.7 (added) Fix `__metaclass__ = ABCMeta` in the stage contracts (Python 2 syntax that Python 3 ignores) by switching to `class X(metaclass=ABCMeta)`.
+  - [x] 1.6 (added) Add `kb_id` to the metadata contract and persistence.
+  - [x] 1.7 (added) Fix `__metaclass__ = ABCMeta` in the stage contracts (Python 2 syntax that Python 3 ignores) by switching to `class X(metaclass=ABCMeta)`.
 - [x] **2.0 Implement upload intake and validation**
   - [x] 2.1 Implement the upload intake service.
   - [x] 2.2 Validate PDF, TXT, and MD extensions.
   - [x] 2.3 Enforce per-file and per-batch limits.
   - [x] 2.4 Add readability pre-checks where feasible.
   - [x] 2.5 Return per-file acceptance/rejection results.
-  - [ ] 2.6 (added) Accept `kb_id` at upload and reject unknown KBs.
+  - [x] 2.6 (added) Accept `kb_id` at upload and reject unknown KBs.
 - [x] **3.0 Implement ingestion queue, worker, and status lifecycle components**
   - [x] 3.1 Add queue abstraction and background worker entrypoint.
   - [x] 3.2 Persist and expose initial `queued` status.
@@ -34,7 +34,7 @@ Target: progress presentation around Oct 27. Milestones: M4 knowledge pipeline (
   - [x] 4.4 Implement text-based PDF extraction; exclude OCR. This is the Table Challenge baseline.
   - [x] 4.5 Normalize extracted-text payloads.
   - [x] 4.6 Map extraction exceptions to standardized failure reasons.
-  - [ ] 4.7 (added, core) Implement a table-aware PDF extractor and register it on the dispatcher. Keep the baseline.
+  - [ ] **4.7 (added, core) Implement a table-aware PDF extractor and register it on the dispatcher. Keep the baseline — next.**
   - [ ] 4.8 (added, core) Analyze document structure (headings, tables, length) and display a chunking and indexing strategy recommendation.
 - [ ] **5.0 Implement chunking, embeddings, and keyword indexing**
   - [ ] 5.1 Configure chunk size and overlap. This fixed-size chunker is the baseline.
@@ -99,3 +99,4 @@ Target: progress presentation around Oct 27. Milestones: M4 knowledge pipeline (
 - By 2026-10-14 · Erynn · `main` · Tasks 1.0–3.0, 6.1, 6.4, 8.5. 66 tests.
 - 2026-10-14 · Ethan · `feat/text-extraction` · Tasks 4.1–4.6, plus a fix so SQLite tests pass on Windows. 92 tests.
 - 2026-10-15 · Ethan · `chore/claude-code-setup` · Added CLAUDE.md, the `/finish-feature` and `/decide` skills, this task list, and the decision log.
+- 2026-10-15 · Ethan · `feat/kb-id` · Tasks 1.6, 1.7, 2.6: `kb_id` in metadata, SQLite (indexed column) and upload intake; canonical `unknown_kb` error; allowed KBs from `INGESTION_ALLOWED_KB_IDS` (`.env`, two placeholders); stage contracts now enforce `@abstractmethod`; SQLite WAL mode; upload tests use temp DBs and the shadowed test class runs. Requirements moved to root `requirements.txt`. 112 tests.

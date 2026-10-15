@@ -14,6 +14,7 @@ from ingestion.ingestion_error_model import (
     ERROR_BATCH_LIMIT_EXCEEDED,
     ERROR_FILE_TOO_LARGE,
     ERROR_INTERNAL_FAILURE,
+    ERROR_UNKNOWN_KB,
     ERROR_UNREADABLE_FILE,
     ERROR_UNSUPPORTED_FORMAT,
     ERROR_VALIDATION_FAILED,
@@ -72,10 +73,14 @@ class IngestionUploadService(object):
             else SQLiteIngestionStatusRepository()
         )
 
-    def create_upload_request(self, files):
-        # type: (list) -> dict
+    def create_upload_request(self, files, kb_id):
+        # type: (list, str) -> dict
         """
         Create an upload intake request for one or more files.
+
+        Every file in the batch goes to one knowledge base, kb_id. It is
+        matched case-insensitively against config.allowed_kb_ids; an unknown
+        KB fails the whole request and nothing is persisted.
 
         Returns:
         {
@@ -85,6 +90,7 @@ class IngestionUploadService(object):
                 {
                     "status": "accepted"|"rejected",
                     "document_id": str|None,
+                    "kb_id": str|None,
                     "ingestion_status": "queued"|None,
                     "metadata": dict|None,
                     "temp_file_path": str|None,
@@ -130,6 +136,12 @@ class IngestionUploadService(object):
             response["errors"].append(batch_error)
             return response
 
+        kb_id, kb_error = self._resolve_kb_id(kb_id)
+        if kb_error is not None:
+            response["status"] = "failed"
+            response["errors"].append(kb_error)
+            return response
+
         for file_input in files:
             validation_error = self._validate_file_type(file_input)
             if validation_error is not None:
@@ -150,7 +162,7 @@ class IngestionUploadService(object):
                 continue
 
             try:
-                response["files"].append(self._create_accepted_file_entry(file_input))
+                response["files"].append(self._create_accepted_file_entry(file_input, kb_id))
             except Exception as exc:
                 error = build_ingestion_error(
                     ERROR_INTERNAL_FAILURE,
@@ -194,6 +206,21 @@ class IngestionUploadService(object):
                 field="files",
             )
         return None
+
+    def _resolve_kb_id(self, kb_id):
+        # type: (str) -> tuple
+        """Return (normalized_kb_id, None) or (None, unknown_kb error)."""
+        normalized = kb_id.strip().lower() if isinstance(kb_id, str) else ""
+        if normalized in self.config.allowed_kb_ids:
+            return normalized, None
+        return None, build_ingestion_error(
+            ERROR_UNKNOWN_KB,
+            details="Knowledge base '{0}' is not configured. Allowed KBs: {1}".format(
+                kb_id if kb_id is not None else "<none>",
+                ", ".join(self.config.allowed_kb_ids),
+            ),
+            field="kb_id",
+        )
 
     def _validate_file_type(self, file_input):
         # type: (UploadFileInput) -> dict
@@ -286,8 +313,8 @@ class IngestionUploadService(object):
 
         return None
 
-    def _create_accepted_file_entry(self, file_input):
-        # type: (UploadFileInput) -> dict
+    def _create_accepted_file_entry(self, file_input, kb_id):
+        # type: (UploadFileInput, str) -> dict
         document_id = self._new_id("doc")
         file_type = self._get_extension(file_input.original_filename)
 
@@ -296,6 +323,7 @@ class IngestionUploadService(object):
             file_type=file_type,
             file_size_bytes=file_input.file_size_bytes,
             upload_timestamp=file_input.upload_timestamp,
+            kb_id=kb_id,
             ingestion_source=file_input.source,
             document_id=document_id,
         )
@@ -305,6 +333,7 @@ class IngestionUploadService(object):
         return {
             "status": "accepted",
             "document_id": document_id,
+            "kb_id": kb_id,
             "ingestion_status": INGESTION_STATUS_QUEUED,
             "metadata": metadata,
             "temp_file_path": file_input.temp_file_path,
@@ -319,6 +348,7 @@ class IngestionUploadService(object):
         return {
             "status": "rejected",
             "document_id": None,
+            "kb_id": None,
             "ingestion_status": None,
             "metadata": {
                 "original_filename": file_name,
