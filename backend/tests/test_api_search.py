@@ -83,12 +83,15 @@ class SearchApiTestCase(unittest.TestCase):
 
 
 class TestSearchEndpoint(SearchApiTestCase):
-    def test_returns_raw_lists_per_kb_and_merge_not_implemented(self):
+    def search_datasheets(self):
+        """Ingest one document per KB, then search hw_datasheets only. Returns (policy_id, datasheet_id, body)."""
         with TestClient(self.app) as client:
             policy_id, datasheet_id = self.ingest_both(client)
             response = client.post("/search", json={"query": "gpio17 uart pin", "kb_ids": ["hw_datasheets"]})
         self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
+        return policy_id, datasheet_id, response.json()
+
+    def assertRawDatasheetLists(self, body, policy_id, datasheet_id):
         self.assertEqual(body["kb_ids"], ["hw_datasheets"])
         self.assertEqual(body["top_k"], 20)
         self.assertEqual(list(body["results"]), ["hw_datasheets"])
@@ -105,11 +108,39 @@ class TestSearchEndpoint(SearchApiTestCase):
             self.assertEqual(top["kb_id"], "hw_datasheets")
             self.assertIn("GPIO17", top["text"])
             self.assertIsNone(top["page_start"])
+        self.assertNotIn(policy_id, str(body["results"]))
+
+    def test_returns_raw_lists_per_kb_and_merged_list(self):
+        policy_id, datasheet_id, body = self.search_datasheets()
+        self.assertRawDatasheetLists(body, policy_id, datasheet_id)
+        self.assertIsNone(body["merge_error"])
+        merged = body["merged"]
+        self.assertIsInstance(merged, list)
+        self.assertTrue(merged)
+        self.assertLessEqual(len(merged), 10)  # default top_n
+        lists = body["results"]["hw_datasheets"]
+        raw_ids = {hit["chunk_id"] for source in ("vector", "keyword") for hit in lists[source]}
+        for item in merged:
+            self.assertIn(item["chunk_id"], raw_ids)
+            self.assertIsInstance(item["fused_score"], float)
+            self.assertGreater(item["fused_score"], 0.0)
+            self.assertTrue(item["sources"])
+            for source in item["sources"]:
+                self.assertIn(source["source"], ("vector", "keyword"))
+                self.assertEqual(source["kb_id"], "hw_datasheets")
+            self.assertEqual(item["document_id"], datasheet_id)
+        scores = [item["fused_score"] for item in merged]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_merge_not_implemented_returns_raw_lists_and_merge_error(self):
+        with patch("retrieval.retrieval_merge.merge_ranked_lists",
+                   side_effect=NotImplementedError("merge_ranked_lists is not implemented yet")):
+            policy_id, datasheet_id, body = self.search_datasheets()
+        self.assertRawDatasheetLists(body, policy_id, datasheet_id)
         self.assertIsNone(body["merged"])
         self.assertEqual(body["merge_error"]["code"], "not_implemented")
         self.assertIn("not implemented", body["merge_error"]["message"].lower())
         self.assertIn("details", body["merge_error"])
-        self.assertNotIn(policy_id, str(body["results"]))
 
     def test_merge_gets_both_lists_of_every_kb_and_its_output_is_returned(self):
         calls = []

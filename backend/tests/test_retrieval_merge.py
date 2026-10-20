@@ -57,7 +57,7 @@ class TestMergeRankedLists(unittest.TestCase):
         for item, (_chunk_id, score) in zip(merged, expected):
             self.assertAlmostEqual(item["fused_score"], score, places=12)
 
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_chunk_in_both_lists_outranks_chunks_in_one_list(self):
         vector = ranked("vector", ["d1:v1", "d1:both", "d1:v3"])
         keyword = ranked("keyword", ["d1:k1", "d1:k2", "d1:both"])
@@ -71,7 +71,7 @@ class TestMergeRankedLists(unittest.TestCase):
             ("d1:v3", rrf(3)),
         ])
 
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_chunk_in_only_one_list_is_included(self):
         vector = ranked("vector", ["d1:a", "d1:shared"])
         keyword = ranked("keyword", ["d1:shared"])
@@ -80,7 +80,7 @@ class TestMergeRankedLists(unittest.TestCase):
         only_vector = merged[1]
         self.assertEqual(only_vector["sources"], [{"source": "vector", "kb_id": KB_A, "rank": 1, "score": 1.0}])
 
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_duplicates_merge_into_one_result_recording_both_sources(self):
         vector = [hit("d1:x", 1, "vector", score=0.91), hit("d1:y", 2, "vector", score=0.80)]
         keyword = [hit("d1:y", 1, "keyword", score=7.5), hit("d1:x", 4, "keyword", score=2.25)]
@@ -105,7 +105,7 @@ class TestMergeRankedLists(unittest.TestCase):
                          ("text of d1:x", "d1", "d1.pdf", KB_A))
         self.assertEqual((x["page_start"], x["page_end"]), (1, 1))
 
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_sorted_by_fused_score_with_chunk_id_tie_break(self):
         vector = ranked("vector", ["d2:zeta", "d1:mid", "d1:alpha"])
         keyword = ranked("keyword", ["d1:alpha", "d2:beta"])
@@ -122,7 +122,7 @@ class TestMergeRankedLists(unittest.TestCase):
         self.assertEqual([item["chunk_id"] for item in merge_ranked_lists([keyword, vector])],
                          [item["chunk_id"] for item in merged])
 
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_top_n_is_respected(self):
         vector = ranked("vector", ["d1:a", "d1:b", "d1:c", "d1:d"])
         keyword = ranked("keyword", ["d1:e", "d1:a"])
@@ -133,14 +133,14 @@ class TestMergeRankedLists(unittest.TestCase):
         many = ranked("vector", ["d1:{0:02d}".format(i) for i in range(15)])
         self.assertEqual(len(merge_ranked_lists([many])), 10)
 
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_empty_lists(self):
         self.assertEqual(merge_ranked_lists([]), [])
         self.assertEqual(merge_ranked_lists([[], []]), [])
         merged = merge_ranked_lists([[], ranked("keyword", ["d1:a"])])
         self.assertScores(merged, [("d1:a", rrf(1))])
 
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_lists_from_two_kbs(self):
         lists = [
             ranked("vector", ["it:policy", "it:vpn"], kb_id=KB_B),
@@ -162,7 +162,7 @@ class TestMergeRankedLists(unittest.TestCase):
         self.assertEqual([(s["source"], s["rank"]) for s in by_id["hw:power"]["sources"]],
                          [("vector", 2), ("keyword", 1)])
 
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_k_changes_scores_as_the_formula_says(self):
         vector = ranked("vector", ["d1:a", "d1:b"])
         keyword = ranked("keyword", ["d1:b"])

@@ -8,16 +8,14 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
   → `feat/kb-id` → `feat/pipeline-baseline` → `ethan/project-setup` → `ethan/f1-api`
   → `ethan/f2-indexing` → `ethan/f3-retrieval`. Base new branches on `ethan/f3-retrieval`
   until the stack merges into `main`.
-- **Current feature:** none. F3's plumbing is done on `ethan/f3-retrieval`. The RRF merge is
-  waiting for Ethan (coach mode).
+- **Current feature:** none. F3 is done on `ethan/f3-retrieval`, including Ethan's RRF merge.
 - **Next concrete steps:**
-  1. Ethan implements `merge_ranked_lists` in `backend/app/retrieval/retrieval_merge.py`
-     until the 8 tests in `test_retrieval_merge.py` pass, then removes their
-     `@unittest.expectedFailure` decorators. A passing expected failure counts as an
-     "unexpected success" and fails the suite.
+  1. Ethan: restore the `merge_ranked_lists` docstring (the contract) above his body, and
+     decide on the merge edge cases in the 2026-10-20 RRF session log.
   2. F4 (`/ask`, router interface + tests by Claude, routing by Ethan) on `ethan/f4-ask`.
 - **Ethan by hand:**
-  - Try `POST /search` at `http://127.0.0.1:8000/docs` (see the 2026-10-20 F3 session log).
+  - Try `POST /search` at `http://127.0.0.1:8000/docs`: `merged` is now filled and
+    `merge_error` is null.
   - Your `.env` comment on line 11 still points at the deleted `docs/decisions.md`.
   - Add public documents for `it_policies` (none yet) and more datasheets, each listed in
     `data/corpus/MANIFEST.md`. The Pico datasheet is in `hw_datasheets/` now.
@@ -27,10 +25,10 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 - **7 days to the progress demo (2026-10-27). 49 days to the final demo (2026-12-08).**
 - At risk:
-  1. F1, F2 and F3's plumbing are done. The RRF merge and F4-F6 remain in 7 days. If a day
-     is lost, cut F6's eval script down to routing accuracy only, not the demo itself.
-  2. `/ask` (F4) depends on Ethan's coach-mode code: the RRF merge (now unblocked, with
-     tests waiting) and the router. `/search` already demos the raw retrieval evidence.
+  1. F1-F3 are done. F4-F6 remain in 7 days. If a day is lost, cut F6's eval script down
+     to routing accuracy only, not the demo itself.
+  2. `/ask` (F4) depends on Ethan's router (coach mode). The RRF merge is done, and
+     `/search` demos the raw and merged retrieval evidence.
   3. The F2 install is 1.3 GB and took about 6.5 minutes; bge-small is a 128 MB
      download. Install and cache both on the demo laptop well before the demo, then use
      `HF_HUB_OFFLINE=1`.
@@ -48,7 +46,7 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 | F0 | Project setup: AGENTS.md, SPEC.md, PROGRESS.md | Done | `ethan/project-setup` | `f8be5c7` |
 | F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Done | `ethan/f1-api` | `1693e82`, `f077c3c`, `4e7eae5` (chores), `1aeffe8`, `c1df404` |
 | F2 | Indexing: bge-small, Chroma and BM25 per KB | Done | `ethan/f2-indexing` | `a922552` |
-| F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Plumbing done; RRF waiting for Ethan | `ethan/f3-retrieval` | this commit |
+| F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Done | `ethan/f3-retrieval` | `2b0566e`, this commit (RRF) |
 | F4 | `/ask`: routing (Ethan, coach), grounded Gemini answer, sources | To do | | |
 | F5 | Streamlit UI: Documents and Ask pages | To do (Erynn likely) | | |
 | F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | To do | | |
@@ -90,6 +88,26 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 ## Session log
 
+- **2026-10-20 · Ethan + Claude · `ethan/f3-retrieval` · F3 RRF merge.**
+  - Ethan implemented `merge_ranked_lists` (coach mode) and commented out the 8
+    `@unittest.expectedFailure` decorators. All 8 merge tests pass.
+  - Claude reviewed it (no rewrite) and checked these edge cases with a scratch script:
+    - `top_n=-1` silently drops the last hit (`results[:-1]`), and `top_n=None` returns
+      everything. The API validates 1-100, but F4 calls the function directly.
+    - A chunk repeated within one list is counted twice (the docstring rules this out;
+      nothing enforces it).
+    - Any extra key on a hit is copied into the fused hit (a deny-list, not an allow-list).
+    - `k=0` with rank 0 raises ZeroDivisionError. `k` isn't validated.
+    - With three or more terms, float addition order can change a fused score by 1 ulp,
+      which can flip a chunk_id tie-break. This can't happen today: a chunk appears in at
+      most its own KB's two lists.
+    - The input hits aren't mutated.
+    - The docstring (the interface contract) was deleted with the old body.
+  - `test_api_search.py`: the old not-implemented test failed once the merge existed. It is
+    now two tests: the real merge (non-empty `merged` with `fused_score` and `sources`,
+    `merge_error` null) and the not-implemented path, with `merge_ranked_lists` patched to
+    raise NotImplementedError.
+  - Tests: 262 run, OK, 3 skipped (opt-in model tests). Ruff clean.
 - **2026-10-20 · Ethan + Claude · `ethan/f3-retrieval` · F3.**
   - New `backend/app/retrieval/` package:
     - `RetrievalConfig` (`RETRIEVAL_TOP_K`, default 20).
@@ -239,6 +257,11 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
     500 `internal_failure`.
   - If the suite fails with this error, re-run it. If it gets more frequent or shows up on
     the dev DB, consider a chromadb upgrade (a dependency change, so ask first).
+- `merge_ranked_lists` has no docstring since the RRF body landed, and
+  `test_retrieval_merge.py` still has its 8 decorators commented out plus a module docstring
+  saying the function raises NotImplementedError. Both are Ethan's to tidy.
+- `merge_ranked_lists` doesn't validate `top_n` or `k` (see the RRF session log). `/search`
+  validates `top_n`; F4's `/ask` must too.
 - *(Fixed in F3)* Vector hits could include documents not in `success`. `/search` and the
   Retriever now filter them out.
 - The API keeps one Chroma PersistentClient open for its lifetime and never calls
@@ -312,7 +335,8 @@ coach-mode code is never on this list.
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
-| 2026-10-20 | `backend/app/retrieval/retrieval_config.py`, `retrieval_retriever.py`, `retrieval_merge.py` (interface and docstring only; Ethan writes the body); `POST /search`, `SearchRequest` and retriever wiring in `api_app.py`; `document_ids` filter in `ChromaVectorIndex.query`; `list_success_document_ids` and `get_chunk_hits` in the artifact repository; `not_implemented` in the error model; tests `test_retrieval_retriever.py`, `test_retrieval_config.py`, `test_retrieval_merge.py`, `test_api_search.py`, plus additions to `test_indexing_vector_index.py` and `test_ingestion_error_model.py` | Claude Code | Ethan (to review) | F3 |
+| 2026-10-20 | `test_api_search.py`: split the merge test into a real-merge test and a patched not-implemented test, with shared helpers | Claude Code | Ethan (to review) | F3 RRF. Not on this list: the `merge_ranked_lists` body, which Ethan wrote (coach mode) |
+| 2026-10-20 | `backend/app/retrieval/retrieval_config.py`, `retrieval_retriever.py`, `retrieval_merge.py` (the interface only: signature, constants and the original docstring; the `merge_ranked_lists` body is Ethan's, not AI-written); `POST /search`, `SearchRequest` and retriever wiring in `api_app.py`; `document_ids` filter in `ChromaVectorIndex.query`; `list_success_document_ids` and `get_chunk_hits` in the artifact repository; `not_implemented` in the error model; tests `test_retrieval_retriever.py`, `test_retrieval_config.py`, `test_retrieval_merge.py`, `test_api_search.py`, plus additions to `test_indexing_vector_index.py` and `test_ingestion_error_model.py` | Claude Code | Ethan (to review) | F3 |
 | 2026-10-20 | `backend/app/indexing/` (all four modules); indexing step in `ingestion_pipeline.py`; `list_kb_chunks` in the artifact repository; `on_finished` in `ingestion_worker.py`; `indexing_failure` in the error model; F2 wiring and `_fail_interrupted_documents` in `api_app.py`; tests `indexing_fakes.py` and six `test_indexing_*.py` files, plus F2 additions to `test_api_documents.py`, `test_ingestion_worker.py`, `test_ingestion_pipeline_e2e.py` and `test_ingestion_error_model.py`; the requirements.txt indexing group | Claude Code | Ethan (to review) | F2 |
 | 2026-10-20 | `backend/app/api/api_app.py`, `api_errors.py`, `api_uploads.py`; tests `test_api_documents.py`, `test_api_uploads.py`, `test_ingestion_inventory.py`; `list_documents` and `count_documents_by_kb_and_status` in the status repository; `list_documents` and `_status_from_record` in the status service; `document_id`, `new_document_id` and `resolve_kb_id` in the upload service; `not_found` in the error model; `ruff.toml`; Ruff fixes in 4 test files and `ingestion_status_constants.py`; KB defaults; requirements.txt | Claude Code | Ethan (to review) | F1 |
 | 2026-10-20 | `AGENTS.md`, `CLAUDE.md`, `docs/SPEC.md`, `docs/PROGRESS.md`, `.claude/skills/decide/SKILL.md`, `.claude/skills/finish-feature/SKILL.md`, `.gitignore` additions, `data/corpus/MANIFEST.md` | Claude Code | Ethan | Docs and config only |
