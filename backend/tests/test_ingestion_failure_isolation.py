@@ -1,5 +1,6 @@
 """Task 3.4: real background-worker batches with file-local failures."""
 
+from contextlib import closing
 import os
 import sqlite3
 import sys
@@ -13,8 +14,12 @@ if APP_DIR not in sys.path:
 
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
+from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_worker import start_background_worker
+
+# First configured KB, so a local .env with real KB IDs does not break tests
+KB_ID = IngestionConfig().allowed_kb_ids[0]
 
 
 class ObservedQueue(InMemoryIngestionJobQueue):
@@ -42,7 +47,7 @@ class TestIngestionFailureIsolation(unittest.TestCase):
         response = service.create_upload_request([
             UploadFileInput(name, 10, "2026-10-10T12:00:00Z")
             for name in ("first.txt", "broken.txt", "last.txt")
-        ])
+        ], KB_ID)
         self.entries = response["files"]
         self.assertEqual(response["status"], "received")
         self.queue = ObservedQueue(len(self.entries))
@@ -90,7 +95,7 @@ class TestIngestionFailureIsolation(unittest.TestCase):
 
     def test_file_specific_storage_failure_does_not_block_later_file(self):
         broken_id = self.entries[1]["document_id"]
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             # Test-only trigger fails this document's processing history insert.
             connection.execute(
                 "CREATE TRIGGER reject_one_file BEFORE INSERT ON ingestion_status_history "

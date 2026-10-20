@@ -21,25 +21,19 @@ class IngestionStatusService(object):
         record = self.status_repository.get_status_snapshot(document_id)
         if record is None:
             return None
-        history = record["history"]
-        status = record["ingestion_status"]
-        terminal = status in TERMINAL_INGESTION_STATUSES
-        processing = next((item["timestamp"] for item in history
-                           if item["status"] == INGESTION_STATUS_PROCESSING), None)
-        return {
-            "document_id": document_id,
-            "original_filename": record["metadata"]["original_filename"],
-            "ingestion_status": status,
-            "upload_timestamp": record["metadata"]["upload_timestamp"],
-            "queued_at": record["queued_at"],
-            "processing_at": processing,
-            "completed_at": history[-1]["timestamp"] if terminal else None,
-            "updated_at": history[-1]["timestamp"],
-            "failure_reason": history[-1]["reason"] if status == INGESTION_STATUS_FAILED else None,
-            "is_terminal": terminal,
-            "should_poll": not terminal,
-            "history": history,
-        }
+        return _status_from_record(record)
+
+    def list_documents(self, kb_id=None):
+        """Return the inventory, newest first: get_document_status output without history.
+
+        kb_id filters to one KB; validating it against the config is the caller's job.
+        """
+        documents = []
+        for record in self.status_repository.list_documents(kb_id):
+            document = _status_from_record(record)
+            del document["history"]
+            documents.append(document)
+        return documents
 
     def get_batch_status(self, document_ids):
         """Poll explicit accepted document IDs, not an upload-request ID.
@@ -74,3 +68,31 @@ class IngestionStatusService(object):
             "is_complete": bool(ids) and completed == len(ids),
             "should_poll": any(document["should_poll"] for document in documents),
         }
+
+
+def _status_from_record(record):
+    """Build the JSON-compatible status dict from a repository snapshot record."""
+    history = record["history"]
+    status = record["ingestion_status"]
+    metadata = record["metadata"]
+    terminal = status in TERMINAL_INGESTION_STATUSES
+    processing = next((item["timestamp"] for item in history
+                       if item["status"] == INGESTION_STATUS_PROCESSING), None)
+    return {
+        "document_id": record["document_id"],
+        "kb_id": record["kb_id"],
+        "original_filename": metadata["original_filename"],
+        "file_type": metadata.get("file_type"),
+        "file_size_bytes": metadata.get("file_size_bytes"),
+        "ingestion_status": status,
+        "upload_timestamp": metadata["upload_timestamp"],
+        "queued_at": record["queued_at"],
+        "processing_at": processing,
+        "completed_at": history[-1]["timestamp"] if terminal else None,
+        "updated_at": history[-1]["timestamp"],
+        "failure_reason": history[-1]["reason"] if status == INGESTION_STATUS_FAILED else None,
+        "failure_code": history[-1]["error_code"] if status == INGESTION_STATUS_FAILED else None,
+        "is_terminal": terminal,
+        "should_poll": not terminal,
+        "history": history,
+    }

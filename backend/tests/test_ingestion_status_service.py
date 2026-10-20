@@ -10,7 +10,11 @@ if APP_DIR not in sys.path:
 
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
 from ingestion.ingestion_status_service import IngestionStatusService
+from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
+
+# First configured KB, so a local .env with real KB IDs does not break tests
+KB_ID = IngestionConfig().allowed_kb_ids[0]
 
 
 class TestIngestionStatusService(unittest.TestCase):
@@ -23,7 +27,7 @@ class TestIngestionStatusService(unittest.TestCase):
         response = IngestionUploadService(status_repository=self.repository).create_upload_request([
             UploadFileInput(name, 10, "2026-10-10T12:00:00Z")
             for name in ("one.txt", "two.md", "three.pdf")
-        ])
+        ], KB_ID)
         self.ids = [entry["document_id"] for entry in response["files"]]
 
     def test_polling_tracks_lifecycle_and_timestamps(self):

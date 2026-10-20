@@ -5,7 +5,8 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-from ingestion.ingestion_metadata_contract import validate_metadata_contract
+from ingestion.ingestion_error_model import ERROR_INTERNAL_FAILURE, is_valid_error_code
+from ingestion.ingestion_metadata_contract import META_KB_ID, validate_metadata_contract
 from ingestion.ingestion_status_constants import (
     INGESTION_STATUS_QUEUED, INGESTION_STATUS_PROCESSING,
     INGESTION_STATUS_SUCCESS, INGESTION_STATUS_FAILED,
@@ -32,22 +33,29 @@ class SQLiteIngestionStatusRepository(object):
         os.makedirs(os.path.dirname(self.database_path), exist_ok=True)
         connection = self._connect()
         try:
+            # WAL is stored in the database file, so every later connection uses it.
+            # It lets status polling read while the worker writes.
+            connection.execute("PRAGMA journal_mode=WAL")
             connection.executescript("""
-                                     CREATE TABLE IF NOT EXISTS ingestion_documents (
-                                                                                        document_id TEXT PRIMARY KEY,
-                                                                                        metadata_json TEXT NOT NULL,
-                                                                                        temp_file_path TEXT,
-                                                                                        ingestion_status TEXT NOT NULL,
-                                                                                        queued_at TEXT NOT NULL
-                                     );
-                                     CREATE TABLE IF NOT EXISTS ingestion_status_history (
-                                                                                             id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                                                                             document_id TEXT NOT NULL REFERENCES ingestion_documents(document_id),
-                                         status TEXT NOT NULL,
-                                         timestamp TEXT NOT NULL,
-                                         reason TEXT
-                                         );
-                                     """)
+                CREATE TABLE IF NOT EXISTS ingestion_documents (
+                    document_id TEXT PRIMARY KEY,
+                    kb_id TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL,
+                    temp_file_path TEXT,
+                    ingestion_status TEXT NOT NULL,
+                    queued_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ingestion_documents_kb_id
+                    ON ingestion_documents(kb_id);
+                CREATE TABLE IF NOT EXISTS ingestion_status_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    document_id TEXT NOT NULL REFERENCES ingestion_documents(document_id),
+                    status TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    reason TEXT,
+                    error_code TEXT
+                );
+            """)
         finally:
             connection.close()
 
@@ -70,8 +78,10 @@ class SQLiteIngestionStatusRepository(object):
         try:
             with connection:
                 connection.execute(
-                    "INSERT INTO ingestion_documents VALUES (?, ?, ?, ?, ?)",
-                    (document_id, json.dumps(metadata), temp_file_path,
+                    "INSERT INTO ingestion_documents "
+                    "(document_id, kb_id, metadata_json, temp_file_path, ingestion_status, queued_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (document_id, metadata[META_KB_ID], json.dumps(metadata), temp_file_path,
                      INGESTION_STATUS_QUEUED, timestamp),
                 )
                 connection.execute(
@@ -115,14 +125,17 @@ class SQLiteIngestionStatusRepository(object):
             connection.close()
 
     def mark_success(self, document_id):
-        return self._finish(document_id, INGESTION_STATUS_SUCCESS, None)
+        return self._finish(document_id, INGESTION_STATUS_SUCCESS, None, None)
 
-    def mark_failed(self, document_id, reason):
+    def mark_failed(self, document_id, reason, error_code=ERROR_INTERNAL_FAILURE):
+        """Unknown error codes are stored as internal_failure."""
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("Failure reason must be a non-empty string")
-        return self._finish(document_id, INGESTION_STATUS_FAILED, reason.strip())
+        if not is_valid_error_code(error_code):
+            error_code = ERROR_INTERNAL_FAILURE
+        return self._finish(document_id, INGESTION_STATUS_FAILED, reason.strip(), error_code)
 
-    def _finish(self, document_id, status, reason):
+    def _finish(self, document_id, status, reason, error_code):
         """Finish processing atomically; identical terminal calls are idempotent.
 
         A queued or terminal document cannot be changed to another terminal
@@ -149,8 +162,8 @@ class SQLiteIngestionStatusRepository(object):
                     raise ValueError("Cannot transition {0} to {1}".format(row["ingestion_status"], status))
                 connection.execute(
                     "INSERT INTO ingestion_status_history "
-                    "(document_id, status, timestamp, reason) VALUES (?, ?, ?, ?)",
-                    (document_id, status, timestamp, reason),
+                    "(document_id, status, timestamp, reason, error_code) VALUES (?, ?, ?, ?, ?)",
+                    (document_id, status, timestamp, reason, error_code),
                 )
             return True
         finally:
@@ -184,7 +197,7 @@ class SQLiteIngestionStatusRepository(object):
             if row is None:
                 return None
             history = connection.execute(
-                "SELECT document_id, status, timestamp, reason "
+                "SELECT document_id, status, timestamp, reason, error_code "
                 "FROM ingestion_status_history WHERE document_id = ? ORDER BY id",
                 (document_id,),
             ).fetchall()
@@ -195,11 +208,57 @@ class SQLiteIngestionStatusRepository(object):
         finally:
             connection.close()
 
+    def list_documents(self, kb_id=None):
+        """Return every document (optionally one KB's), newest first, with history.
+
+        Same record shape as get_status_snapshot, read from one consistent
+        SQLite snapshot. Newest first means latest insert first (rowid).
+        """
+        where, params = ("WHERE kb_id = ?", (kb_id,)) if kb_id is not None else ("", ())
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN")
+            rows = connection.execute(
+                "SELECT * FROM ingestion_documents {0} ORDER BY rowid DESC".format(where), params,
+            ).fetchall()
+            history_rows = connection.execute(
+                "SELECT document_id, status, timestamp, reason, error_code "
+                "FROM ingestion_status_history WHERE document_id IN "
+                "(SELECT document_id FROM ingestion_documents {0}) ORDER BY id".format(where), params,
+            ).fetchall()
+            histories = {}
+            for item in history_rows:
+                histories.setdefault(item["document_id"], []).append(dict(item))
+            records = []
+            for row in rows:
+                result = dict(row)
+                result["metadata"] = json.loads(result.pop("metadata_json"))
+                result["history"] = histories.get(result["document_id"], [])
+                records.append(result)
+            return records
+        finally:
+            connection.close()
+
+    def count_documents_by_kb_and_status(self):
+        """Return {kb_id: {status: count}} for every KB and status that has documents."""
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT kb_id, ingestion_status, COUNT(*) AS document_count "
+                "FROM ingestion_documents GROUP BY kb_id, ingestion_status"
+            ).fetchall()
+            counts = {}
+            for row in rows:
+                counts.setdefault(row["kb_id"], {})[row["ingestion_status"]] = row["document_count"]
+            return counts
+        finally:
+            connection.close()
+
     def get_status_history(self, document_id):
         connection = self._connect()
         try:
             rows = connection.execute(
-                "SELECT document_id, status, timestamp, reason "
+                "SELECT document_id, status, timestamp, reason, error_code "
                 "FROM ingestion_status_history WHERE document_id = ? ORDER BY id",
                 (document_id,),
             ).fetchall()

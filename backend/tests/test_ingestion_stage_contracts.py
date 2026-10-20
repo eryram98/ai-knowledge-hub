@@ -10,6 +10,10 @@ if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
 from ingestion.ingestion_stage_contracts import (
+    ChunkingStage,
+    EmbeddingStage,
+    ExtractionStage,
+    IndexingStage,
     ensure_contract_implemented,
     EXTRACTION_REQUIRED_METHODS,
     CHUNKING_REQUIRED_METHODS,
@@ -67,6 +71,29 @@ class TestIngestionStageContracts(unittest.TestCase):
         ok, errors = ensure_contract_implemented(GoodIndexingStage(), INDEXING_REQUIRED_METHODS)
         self.assertTrue(ok)
         self.assertEqual(errors, [])
+
+
+class TestStageAbstractEnforcement(unittest.TestCase):
+    """Stage base classes use metaclass=ABCMeta, so abstract methods are enforced."""
+
+    def test_bare_stages_cannot_be_instantiated(self):
+        for stage_class in (ExtractionStage, ChunkingStage, EmbeddingStage, IndexingStage):
+            with self.assertRaises(TypeError, msg=stage_class.__name__):
+                stage_class()
+
+    def test_subclass_missing_abstract_method_cannot_be_instantiated(self):
+        class IncompleteExtractor(ExtractionStage):
+            pass
+
+        with self.assertRaises(TypeError):
+            IncompleteExtractor()
+
+    def test_subclass_implementing_abstract_method_can_be_instantiated(self):
+        class CompleteExtractor(ExtractionStage):
+            def extract_text(self, file_path, file_type):
+                return {"full_text": "", "metadata": {}}
+
+        self.assertIsInstance(CompleteExtractor(), ExtractionStage)
 
 
 if __name__ == "__main__":

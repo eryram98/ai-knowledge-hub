@@ -1,3 +1,4 @@
+from contextlib import closing
 import os
 import sqlite3
 import sys
@@ -10,7 +11,11 @@ if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
+from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
+
+# First configured KB, so a local .env with real KB IDs does not break tests
+KB_ID = IngestionConfig().allowed_kb_ids[0]
 
 
 class TestQueuedPersistence(unittest.TestCase):
@@ -25,7 +30,7 @@ class TestQueuedPersistence(unittest.TestCase):
         return UploadFileInput(filename, 10, "2026-10-10T12:00:00Z")
 
     def test_accepted_status_and_history_survive_repository_restart(self):
-        entry = self.service.create_upload_request([self.file_input()])["files"][0]
+        entry = self.service.create_upload_request([self.file_input()], KB_ID)["files"][0]
         reopened = SQLiteIngestionStatusRepository(self.path)
         saved = reopened.get_document(entry["document_id"])
         self.assertEqual(entry["ingestion_status"], "queued")
@@ -38,16 +43,18 @@ class TestQueuedPersistence(unittest.TestCase):
         self.assertIsNone(history[0]["reason"])
 
     def test_rejected_file_is_not_persisted(self):
-        response = self.service.create_upload_request([self.file_input("bad.exe")])
+        response = self.service.create_upload_request([self.file_input("bad.exe")], KB_ID)
         self.assertEqual(response["files"][0]["status"], "rejected")
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ingestion_documents").fetchone()[0], 0)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ingestion_status_history").fetchone()[0], 0)
 
     def test_storage_failure_rejects_file(self):
         repository = Mock()
         repository.create_queued.side_effect = sqlite3.OperationalError("storage unavailable")
-        response = IngestionUploadService(status_repository=repository).create_upload_request([self.file_input()])
+        response = IngestionUploadService(status_repository=repository).create_upload_request(
+            [self.file_input()], KB_ID,
+        )
         entry = response["files"][0]
         self.assertEqual(response["status"], "failed")
         self.assertEqual(entry["status"], "rejected")
@@ -55,25 +62,47 @@ class TestQueuedPersistence(unittest.TestCase):
         self.assertEqual(entry["error"]["code"], "internal_failure")
 
     def test_duplicate_document_does_not_reset_history(self):
-        entry = self.service.create_upload_request([self.file_input()])["files"][0]
+        entry = self.service.create_upload_request([self.file_input()], KB_ID)["files"][0]
         with self.assertRaises(sqlite3.IntegrityError):
             self.repository.create_queued(entry["metadata"])
         self.assertEqual(len(self.repository.get_status_history(entry["document_id"])), 1)
 
     def test_history_failure_rolls_back_document(self):
-        with sqlite3.connect(self.path) as connection:
-            connection.execute("CREATE TRIGGER reject_history BEFORE INSERT ON ingestion_status_history BEGIN SELECT RAISE(ABORT, 'test failure'); END")
-        entry = self.service.create_upload_request([self.file_input()])["files"][0]
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute(
+                "CREATE TRIGGER reject_history BEFORE INSERT ON ingestion_status_history "
+                "BEGIN SELECT RAISE(ABORT, 'test failure'); END"
+            )
+        entry = self.service.create_upload_request([self.file_input()], KB_ID)["files"][0]
         self.assertEqual(entry["status"], "rejected")
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ingestion_documents").fetchone()[0], 0)
 
     def test_partial_batch_persists_only_accepted_files(self):
-        response = self.service.create_upload_request([self.file_input(), self.file_input("bad.exe")])
+        response = self.service.create_upload_request([self.file_input(), self.file_input("bad.exe")], KB_ID)
         self.assertEqual(response["status"], "partial")
         self.assertIsNotNone(self.repository.get_document(response["files"][0]["document_id"]))
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM ingestion_documents").fetchone()[0], 1)
+
+    def test_kb_id_is_persisted_in_column_and_metadata(self):
+        entry = self.service.create_upload_request([self.file_input()], KB_ID)["files"][0]
+        saved = SQLiteIngestionStatusRepository(self.path).get_document(entry["document_id"])
+        self.assertEqual(saved["kb_id"], KB_ID)
+        self.assertEqual(saved["metadata"]["kb_id"], KB_ID)
+
+    def test_metadata_without_kb_id_is_rejected(self):
+        entry = self.service.create_upload_request([self.file_input()], KB_ID)["files"][0]
+        metadata = dict(entry["metadata"], document_id="doc-no-kb")
+        del metadata["kb_id"]
+        with self.assertRaises(ValueError):
+            self.repository.create_queued(metadata)
+        self.assertIsNone(self.repository.get_document("doc-no-kb"))
+
+    def test_database_uses_wal_journal_mode(self):
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        self.assertEqual(mode.lower(), "wal")
 
     def test_unknown_document(self):
         self.assertIsNone(self.repository.get_document("unknown"))

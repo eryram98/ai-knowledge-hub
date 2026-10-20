@@ -8,7 +8,7 @@ if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
-from ingestion.ingestion_worker import start_background_worker
+from ingestion.ingestion_worker import run_worker, start_background_worker
 
 
 class TestIngestionQueueAndWorker(unittest.TestCase):
@@ -67,6 +67,74 @@ class TestIngestionQueueAndWorker(unittest.TestCase):
     def test_invalid_processor_is_rejected_before_start(self):
         with self.assertRaises(TypeError):
             start_background_worker(InMemoryIngestionJobQueue(), None)
+
+
+class RecordingStatusRepository(object):
+    """Stands in for the SQLite repository; records status changes in order."""
+
+    def __init__(self, events):
+        self.events = events
+
+    def mark_processing(self, document_id):
+        self.events.append(("processing", document_id))
+        return True
+
+    def mark_success(self, document_id):
+        self.events.append(("success", document_id))
+
+    def mark_failed(self, document_id, reason, error_code):
+        self.events.append(("failed", document_id))
+
+
+class TestOnFinishedHook(unittest.TestCase):
+    def run_jobs(self, process, on_finished, events, document_ids):
+        queue = InMemoryIngestionJobQueue()
+        for document_id in document_ids:
+            queue.enqueue(IngestionJob(document_id, document_id + ".txt"))
+        thread, stop = start_background_worker(
+            queue, process, status_repository=RecordingStatusRepository(events), on_finished=on_finished,
+        )
+        try:
+            queue.join()
+        finally:
+            stop.set()
+            thread.join(timeout=2)
+
+    def test_runs_after_the_status_change_for_success_and_failure(self):
+        events = []
+
+        def process(job):
+            if job.document_id == "bad":
+                raise RuntimeError("boom")
+
+        def on_finished(job, status):
+            events.append(("hook", job.document_id, status))
+
+        with self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
+            self.run_jobs(process, on_finished, events, ["good", "bad"])
+        self.assertEqual(events, [
+            ("processing", "good"), ("success", "good"), ("hook", "good", "success"),
+            ("processing", "bad"), ("failed", "bad"), ("hook", "bad", "failed"),
+        ])
+
+    def test_hook_error_is_logged_and_isolated(self):
+        events = []
+
+        def on_finished(job, status):
+            events.append(("hook", job.document_id))
+            raise RuntimeError("hook broke")
+
+        with self.assertLogs("ingestion.ingestion_worker", level="ERROR") as logs:
+            self.run_jobs(lambda job: None, on_finished, events, ["first", "second"])
+        self.assertEqual([e for e in events if e[0] == "success"], [("success", "first"), ("success", "second")])
+        self.assertEqual([e for e in events if e[0] == "hook"], [("hook", "first"), ("hook", "second")])
+        self.assertTrue(any("on_finished hook failed: first" in line for line in logs.output), logs.output)
+        # A hook error is not a processing failure.
+        self.assertNotIn(("failed", "first"), events)
+
+    def test_non_callable_hook_is_rejected(self):
+        with self.assertRaises(TypeError):
+            run_worker(InMemoryIngestionJobQueue(), lambda job: None, Event(), on_finished="nope")
 
 
 if __name__ == "__main__":

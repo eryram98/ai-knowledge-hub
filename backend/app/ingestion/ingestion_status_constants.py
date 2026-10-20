@@ -29,10 +29,10 @@ TERMINAL_INGESTION_STATUSES = (
 # processing -> success | failed
 # success -> (terminal)
 # failed -> (terminal)
-ALLOWED_STATUS_TRANSITIONS = {
+ALLOWED_STATUS_TRANSITIONS: Dict[str, FrozenSet[str]] = {
     INGESTION_STATUS_QUEUED: frozenset(
         [INGESTION_STATUS_PROCESSING, INGESTION_STATUS_FAILED]
-    ),  # type: Dict[str, FrozenSet[str]]
+    ),
     INGESTION_STATUS_PROCESSING: frozenset(
         [INGESTION_STATUS_SUCCESS, INGESTION_STATUS_FAILED]
     ),

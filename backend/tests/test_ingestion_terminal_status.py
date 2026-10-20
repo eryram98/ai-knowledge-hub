@@ -1,5 +1,6 @@
 """Task 3.5: durable terminal states, transition rules, and worker outcomes."""
 
+from contextlib import closing
 import os
 import sqlite3
 import sys
@@ -11,10 +12,18 @@ APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
+from ingestion.ingestion_error_model import (
+    ERROR_EMPTY_CONTENT, ERROR_INTERNAL_FAILURE, IngestionStageError,
+)
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
+from ingestion.ingestion_status_service import IngestionStatusService
+from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
 from ingestion.ingestion_worker import run_worker
+
+# First configured KB, so a local .env with real KB IDs does not break tests
+KB_ID = IngestionConfig().allowed_kb_ids[0]
 
 
 class TestTerminalStatus(unittest.TestCase):
@@ -25,7 +34,7 @@ class TestTerminalStatus(unittest.TestCase):
         self.repository = SQLiteIngestionStatusRepository(self.path)
         entry = IngestionUploadService(status_repository=self.repository).create_upload_request([
             UploadFileInput("notes.txt", 10, "2026-10-10T12:00:00Z")
-        ])["files"][0]
+        ], KB_ID)["files"][0]
         self.document_id = entry["document_id"]
 
     def test_success_persists_without_duplicate_history(self):
@@ -62,8 +71,12 @@ class TestTerminalStatus(unittest.TestCase):
 
     def test_terminal_history_failure_rolls_back_status(self):
         self.repository.mark_processing(self.document_id)
-        with sqlite3.connect(self.path) as connection:
-            connection.execute("CREATE TRIGGER reject_terminal BEFORE INSERT ON ingestion_status_history WHEN NEW.status IN ('success', 'failed') BEGIN SELECT RAISE(ABORT, 'test storage failure'); END")
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute(
+                "CREATE TRIGGER reject_terminal BEFORE INSERT ON ingestion_status_history "
+                "WHEN NEW.status IN ('success', 'failed') "
+                "BEGIN SELECT RAISE(ABORT, 'test storage failure'); END"
+            )
         for finish in (lambda: self.repository.mark_success(self.document_id),
                        lambda: self.repository.mark_failed(self.document_id, "Failure")):
             with self.assertRaises(sqlite3.IntegrityError):
@@ -96,11 +109,55 @@ class TestTerminalStatus(unittest.TestCase):
         with self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
             self.run_one(fail)
         self.assertEqual(self.repository.get_document(self.document_id)["ingestion_status"], "failed")
-        self.assertEqual(self.repository.get_status_history(self.document_id)[-1]["reason"], "RuntimeError: Text extraction failed")
+        self.assertEqual(
+            self.repository.get_status_history(self.document_id)[-1]["reason"],
+            "RuntimeError: Text extraction failed",
+        )
+
+    def test_failure_code_is_stored(self):
+        self.repository.mark_processing(self.document_id)
+        self.repository.mark_failed(self.document_id, "Nothing to index", ERROR_EMPTY_CONTENT)
+        history = SQLiteIngestionStatusRepository(self.path).get_status_history(self.document_id)
+        self.assertEqual(history[-1]["error_code"], ERROR_EMPTY_CONTENT)
+        self.assertIsNone(history[0]["error_code"])
+        status = IngestionStatusService(self.repository).get_document_status(self.document_id)
+        self.assertEqual(status["failure_code"], ERROR_EMPTY_CONTENT)
+
+    def test_unknown_failure_code_is_normalized(self):
+        self.repository.mark_processing(self.document_id)
+        self.repository.mark_failed(self.document_id, "Odd failure", "made_up_code")
+        self.assertEqual(self.repository.get_status_history(self.document_id)[-1]["error_code"], ERROR_INTERNAL_FAILURE)
+
+    def test_success_has_no_failure_code(self):
+        self.run_one(lambda job: None)
+        status = IngestionStatusService(self.repository).get_document_status(self.document_id)
+        self.assertIsNone(status["failure_code"])
+        self.assertIsNone(self.repository.get_status_history(self.document_id)[-1]["error_code"])
+
+    def test_worker_stores_stage_error_code(self):
+        def fail(job):
+            raise IngestionStageError(ERROR_EMPTY_CONTENT, "Document has no text to chunk.")
+
+        with self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
+            self.run_one(fail)
+        last = self.repository.get_status_history(self.document_id)[-1]
+        self.assertEqual(last["error_code"], ERROR_EMPTY_CONTENT)
+        self.assertEqual(last["reason"], "IngestionStageError: Document has no text to chunk.")
+
+    def test_worker_stores_internal_failure_for_uncoded_errors(self):
+        def fail(job):
+            raise RuntimeError("boom")
+
+        with self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
+            self.run_one(fail)
+        self.assertEqual(self.repository.get_status_history(self.document_id)[-1]["error_code"], ERROR_INTERNAL_FAILURE)
 
     def test_worker_logs_terminal_storage_failure_without_false_success(self):
-        with sqlite3.connect(self.path) as connection:
-            connection.execute("CREATE TRIGGER reject_success BEFORE INSERT ON ingestion_status_history WHEN NEW.status = 'success' BEGIN SELECT RAISE(ABORT, 'test storage failure'); END")
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute(
+                "CREATE TRIGGER reject_success BEFORE INSERT ON ingestion_status_history "
+                "WHEN NEW.status = 'success' BEGIN SELECT RAISE(ABORT, 'test storage failure'); END"
+            )
         with self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
             self.run_one(lambda job: None)
         self.assertEqual(self.repository.get_document(self.document_id)["ingestion_status"], "processing")

@@ -1,5 +1,6 @@
 """Task 3.3: atomic claims and persistence before worker processing."""
 
+from contextlib import closing
 import os
 import sqlite3
 import sys
@@ -13,9 +14,13 @@ if APP_DIR not in sys.path:
 
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
+from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_worker import run_worker
 from threading import Event
+
+# First configured KB, so a local .env with real KB IDs does not break tests
+KB_ID = IngestionConfig().allowed_kb_ids[0]
 
 
 class TestProcessingStatus(unittest.TestCase):
@@ -27,7 +32,7 @@ class TestProcessingStatus(unittest.TestCase):
         service = IngestionUploadService(status_repository=self.repository)
         self.entry = service.create_upload_request([
             UploadFileInput("notes.txt", 10, "2026-10-10T12:00:00Z")
-        ])["files"][0]
+        ], KB_ID)["files"][0]
         self.document_id = self.entry["document_id"]
 
     def test_processing_survives_restart_and_duplicate_claim(self):
@@ -51,8 +56,11 @@ class TestProcessingStatus(unittest.TestCase):
             self.repository.mark_processing("missing")
 
     def test_history_failure_rolls_back_processing(self):
-        with sqlite3.connect(self.path) as connection:
-            connection.execute("CREATE TRIGGER reject_processing BEFORE INSERT ON ingestion_status_history WHEN NEW.status = 'processing' BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute(
+                "CREATE TRIGGER reject_processing BEFORE INSERT ON ingestion_status_history "
+                "WHEN NEW.status = 'processing' BEGIN SELECT RAISE(ABORT, 'test failure'); END"
+            )
         with self.assertRaises(sqlite3.IntegrityError):
             self.repository.mark_processing(self.document_id)
         self.assertEqual(self.repository.get_document(self.document_id)["ingestion_status"], "queued")

@@ -12,6 +12,10 @@ ERROR_FILE_TOO_LARGE = "file_too_large"
 ERROR_BATCH_LIMIT_EXCEEDED = "batch_limit_exceeded"
 ERROR_DUPLICATE_BLOCKED = "duplicate_blocked"
 ERROR_INTERNAL_FAILURE = "internal_failure"
+ERROR_UNKNOWN_KB = "unknown_kb"
+ERROR_EMPTY_CONTENT = "empty_content"
+ERROR_NOT_FOUND = "not_found"
+ERROR_INDEXING_FAILURE = "indexing_failure"
 
 INGESTION_ERROR_CODES = (
     ERROR_UNSUPPORTED_FORMAT,
@@ -22,6 +26,10 @@ INGESTION_ERROR_CODES = (
     ERROR_BATCH_LIMIT_EXCEEDED,
     ERROR_DUPLICATE_BLOCKED,
     ERROR_INTERNAL_FAILURE,
+    ERROR_UNKNOWN_KB,
+    ERROR_EMPTY_CONTENT,
+    ERROR_NOT_FOUND,
+    ERROR_INDEXING_FAILURE,
 )
 
 DEFAULT_ERROR_MESSAGES = {
@@ -33,7 +41,26 @@ DEFAULT_ERROR_MESSAGES = {
     ERROR_BATCH_LIMIT_EXCEEDED: "Upload batch exceeds the maximum allowed number of files.",
     ERROR_DUPLICATE_BLOCKED: "Duplicate file blocked by the active duplicate policy.",
     ERROR_INTERNAL_FAILURE: "An internal error occurred during ingestion.",
+    ERROR_UNKNOWN_KB: "Unknown knowledge base. Choose one of the configured KBs.",
+    ERROR_EMPTY_CONTENT: "The document contains no text to index.",
+    ERROR_NOT_FOUND: "The requested resource was not found.",
+    ERROR_INDEXING_FAILURE: "Embedding or indexing failed for this document.",
 }
+
+
+class IngestionStageError(Exception):
+    """
+    Base for pipeline stage errors that carry a canonical error code.
+
+    str(exc) is the human-readable detail; the worker stores error_code
+    alongside the failure reason in the status history.
+    """
+
+    def __init__(self, error_code, details):
+        # type: (str, str) -> None
+        super(IngestionStageError, self).__init__(details)
+        self.error_code = error_code
+        self.details = details
 
 
 def is_valid_error_code(error_code):
