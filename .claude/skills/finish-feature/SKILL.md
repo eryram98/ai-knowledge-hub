@@ -1,19 +1,37 @@
 ---
 name: finish-feature
-description: Wrap up a finished feature. Run the tests, update docs/tasks.md, commit, and print the updated task list.
+description: Wrap up a finished feature. Run every check, update docs/PROGRESS.md, commit, and print the end-of-session summary from AGENTS.md.
 ---
 
 Finish the current feature. $ARGUMENTS
 
-1. Run `python -m unittest discover -s backend\tests`. If anything fails or is skipped, stop and report it. Do not continue.
-2. Run `git diff main...HEAD --stat` and `git status` to see what this branch changed.
-3. Update `docs/tasks.md`:
-   - Check off every subtask this branch completed. Only check off what the code and tests actually do.
-   - Check off the parent task only when all of its non-deferred subtasks are done.
-   - Move the `— next` marker to the next unchecked task.
-   - Add a line to the Progress log: date, branch, what was finished, test count.
-   - If work revealed a missing task, add it, labeled `(added)`.
-4. Commit the task list with the feature, using a conventional commit message.
-5. Print the full updated task list in the chat.
-6. Print exactly what Ethan needs to do next: the push command, whether to open a PR for Erynn, and anything to tell her (for example a convention she needs to follow).
-7. List up to three questions a professor could ask about this feature. Wait for Ethan's answers before explaining.
+1. Run every check listed under "Commands" in `AGENTS.md`, with `.venv\Scripts\python`
+   (tests, plus Ruff and the Streamlit smoke test once they exist). If anything fails or
+   is skipped, fix it, or stop and report the exact output. Never commit with a failing check.
+2. Check the feature against its "Done when" in `docs/SPEC.md`, point by point. If a
+   point isn't met, say so. Don't mark the feature done. Either finish it or commit as
+   `wip:` (step 5).
+3. Run `git status` and `git diff <parent>...HEAD --stat`, where `<parent>` is the branch
+   this one was created from (the branch stack is at the top of PROGRESS.md; use `main`
+   once the stack is merged). Make sure only this feature's files changed and nothing
+   from anyone else's uncommitted work is included.
+4. Update `docs/PROGRESS.md`:
+   - The feature table: status, branch, and commit. Write "this commit", because the hash
+     doesn't exist yet. The next PROGRESS.md update replaces it with the real short hash.
+   - "Now": current feature, next concrete step, and add this branch to the stack if
+     it's new.
+   - The session log: date, branch, what was finished, test count.
+   - Decisions (via the `/decide` format), deviations, known issues and open questions
+     found during the work.
+   - Evaluation numbers, if they were measured.
+   - The AI-written code list: every file Claude wrote or substantially changed.
+   - The countdown: days left to the next milestone and what's at risk.
+5. Commit the feature and PROGRESS.md together with a conventional commit message
+   (`feat:`, `fix:`, `test:`, `docs:`, `chore:`; `wip:` for an unfinished stop). Never
+   push, merge or open a PR.
+6. Print the end-of-session summary in the exact format from `AGENTS.md`. Under "What's
+   done", list every change to Erynn's modules (tasks 1-3) so Ethan can tell her.
+7. Print the command Ethan can run to push (`git push -u origin <branch>`), and say
+   whether a PR for Erynn makes sense now.
+8. If the feature included a coach-mode piece, ask Ethan one likely professor or
+   interviewer question about it. Wait for his answer before explaining.

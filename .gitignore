@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project data (see AGENTS.md: never commit corpus files, extracted text,
+# embeddings, the Chroma directory or SQLite files)
+data/corpus/**
+!data/corpus/*/
+!data/corpus/MANIFEST.md
+backend/instance/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+chroma/
