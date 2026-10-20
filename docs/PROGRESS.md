@@ -5,24 +5,26 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 ## Now
 
 - **Branch stack (unmerged, oldest first):** `feat/text-extraction` → `chore/claude-code-setup`
-  → `feat/kb-id` → `feat/pipeline-baseline` → `ethan/project-setup`. Base new branches
-  on `ethan/project-setup` until the stack merges into `main`.
-- **Current feature:** none. F0 (project setup) is done.
-- **Next concrete step:** start F1 on `ethan/f1-http-api`.
-  1. Chore commit: add Ruff (rules E and F) and swap `fastapi[standard]` for
-     `fastapi` + `uvicorn` + `python-multipart`.
-  2. Write the F1 plan here (files, risks), then build the API.
-- **Ethan by hand:** set `INGESTION_ALLOWED_KB_IDS=it_policies,hw_datasheets` in your
-  own `.env` (F1 changes the defaults and `.env.example`, not your `.env`).
-  Start downloading public documents into `data/corpus/it_policies/` and
-  `data/corpus/hw_datasheets/`, and add each one to `data/corpus/MANIFEST.md`.
+  → `feat/kb-id` → `feat/pipeline-baseline` → `ethan/project-setup` → `ethan/f1-api`.
+  Base new branches on `ethan/f1-api` until the stack merges into `main`.
+- **Current feature:** none. F1 (HTTP API) is done on `ethan/f1-api`.
+- **Next concrete step:** start F2 (indexing) on `ethan/f2-indexing`, based on
+  `ethan/f1-api`. First ask Ethan to approve the F2 dependencies (`sentence-transformers`,
+  `chromadb`, `rank-bm25`) with exact pins, and settle the BM25 library (still open).
+- **Ethan by hand:**
+  - Your `.env` already has `it_policies,hw_datasheets`. Only its comment on line 11
+    still points at the deleted `docs/decisions.md`.
+  - Download public documents into `data/corpus/it_policies/` and
+    `data/corpus/hw_datasheets/`, and list each one in `data/corpus/MANIFEST.md`.
+  - Try the API by hand (see the session summary): start it, open `/docs`, upload a file.
 
 ## Countdown and risk (as of 2026-10-20)
 
 - **7 days to the progress demo (2026-10-27). 49 days to the final demo (2026-12-08).**
 - At risk:
-  1. Six one-session features (F1-F6) in 7 days leaves no slack. If a day is lost,
-     cut F6's eval script down to routing accuracy only, not the demo itself.
+  1. F1 is done. That leaves five one-session features (F2-F6) in 7 days, with no
+     slack. If a day is lost, cut F6's eval script down to routing accuracy only, not
+     the demo itself.
   2. F3 and F4 depend on Ethan's coach-mode code (the RRF merge and the router). The
      `/ask` endpoint can't be demoed until both exist. Start thinking about both
      designs now.
@@ -36,9 +38,9 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 | # | Feature | Status | Branch | Commit |
 |---|---|---|---|---|
-| F0 | Project setup: AGENTS.md, SPEC.md, PROGRESS.md | Done | `ethan/project-setup` | (this commit) |
-| F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Next | | |
-| F2 | Indexing: bge-small, Chroma and BM25 per KB | To do | | |
+| F0 | Project setup: AGENTS.md, SPEC.md, PROGRESS.md | Done | `ethan/project-setup` | `f8be5c7` |
+| F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Done | `ethan/f1-api` | `1693e82`, `f077c3c`, `4e7eae5` (chores), this commit |
+| F2 | Indexing: bge-small, Chroma and BM25 per KB | Next | | |
 | F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | To do | | |
 | F4 | `/ask`: routing (Ethan, coach), grounded Gemini answer, sources | To do | | |
 | F5 | Streamlit UI: Documents and Ask pages | To do (Erynn likely) | | |
@@ -81,6 +83,18 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 ## Session log
 
+- **2026-10-20 · Ethan + Claude · `ethan/f1-api` · F1.**
+  - Chores: added Ruff (rules E and F, line length 120, E402 ignored in tests) and
+    fixed what it flagged with no behavior change; slimmed FastAPI dependencies
+    (verified in a fresh venv built only from requirements.txt); replaced the
+    placeholder KB IDs.
+  - F1: new `backend/app/api/` package (app factory, lifespan worker, upload storage,
+    canonical errors), five endpoints, and re-enqueue of queued documents on startup.
+  - Tests: 178 OK (142 before plus 36 new) in `.venv` and in the slim scratch venv. Ruff
+    is clean.
+  - Manual checks: the documented uvicorn command starts and `/kbs` answers. Under
+    real uvicorn on a temp DB, a TXT, MD and PDF reached `success`, a body over the
+    cap got 413 in 0.22 s, and a graceful shutdown left no worker thread.
 - **2026-10-20 · Ethan + Claude · `ethan/project-setup` · F0.**
   - Audited the repo and ran the checks: 142 tests OK, under both the global Python
     3.11.9 and `.venv`.
@@ -97,6 +111,16 @@ unless marked "(Claude, small call)".
 
 | Date | Decision | Choice | Alternatives ruled out (why) | Owner |
 |---|---|---|---|---|
+| 2026-10-20 | Paths in API responses | `temp_file_path` is stripped from every API response. It stays in the service-layer result for the worker. A test checks that no response contains it or the local upload path. | Return it unchanged (it leaks an absolute local path) | Ethan |
+| 2026-10-20 | Re-enqueue on startup | Documents still `queued` in SQLite are re-enqueued when the app starts, oldest first. A queued row with no stored file is skipped with a warning. | No re-enqueue (why: not recorded) | Ethan |
+| 2026-10-20 | `POST /documents` status code | 202 with per-file results whenever the request itself is valid, even if every file was rejected. Request-level errors (unknown KB, batch limit, body over the cap) return the canonical error. | Return the shared code's status (for example 413) when no file is accepted, which drops the per-file list (why: not recorded) | Ethan |
+| 2026-10-20 | Upload size enforcement | ASGI middleware caps the whole request body while it streams in (413 when over `max_files_per_batch × max_size + 1 MB`), plus a per-file chunked copy that stops at the limit and deletes the partial file | Own streaming multipart parser with python-multipart for a true per-file streaming limit (why: not recorded) | Ethan |
+| 2026-10-20 | F1 dependencies | `fastapi==0.142.2`, `uvicorn==0.54.0`, `python-multipart==0.0.32`, `httpx==0.28.1` (TestClient), `ruff==0.17.1`. Verified in a scratch venv; `.venv` left alone. | Also uninstall the `[standard]` extras from `.venv` (why: not recorded) | Ethan |
+| 2026-10-20 | Ruff line length | 120. E402 is ignored in `backend/tests/*` because of the required `sys.path` insert. | 88 (default): 203 long-line hits to rewrap (Claude, small call) | Ethan |
+| 2026-10-20 | Not-found error code | New canonical code `not_found` for unknown documents and unknown routes | | Ethan (Claude, small call) |
+| 2026-10-20 | Stored file name | Metadata `original_filename` is the sanitized base name. The client's directory parts are dropped. | | Ethan (Claude, small call) |
+| 2026-10-20 | Batch status route | `GET /documents/status?document_id=...`, registered before `/documents/{id}` | | Ethan (Claude, small call) |
+| 2026-10-20 | Ingestion source for API uploads | Keep `"UI"`. The API can't tell Streamlit uploads from direct API calls, so the metadata contract is unchanged. | Add an `"API"` source (Claude, small call) | Ethan |
 | 2026-10-20 | Eval set location | `data/eval/eval_set.jsonl`, committed, one JSON object per line | CSV (awkward for lists of KBs and long answers) (Claude, small call) | Ethan |
 | 2026-10-20 | Chroma location | `backend/instance/chroma/`, next to the SQLite dev DB, git-ignored | Repo-root `chroma/` (scatters local state) (Claude, small call) | Ethan |
 | 2026-10-20 | Session-start pull | `git pull --ff-only` only when the branch has an upstream, otherwise `git fetch` | Plain `git pull` (fails on local-only branches, can create merge commits) (Claude, small call) | Ethan |
@@ -123,7 +147,11 @@ unless marked "(Claude, small call)".
 
 Still open (decide when the feature needs it): Table Challenge approach (F8, coach), re-ranker
 model (F7, coach), BM25 library (F2, `rank-bm25` proposed), PR review and CI workflow with
-Erynn.
+Erynn, `httpx` vs `httpx2` for TestClient (see Known issues).
+
+Correction to the 2026-10-20 "FastAPI packaging" row: slim `fastapi` 0.142 still depends on
+`opentelemetry-api` (the small no-op API package). The `[standard]` extras that are now gone
+are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-cloud-cli.
 
 ## Deviations from the spec or the Phase 1 deck
 
@@ -134,17 +162,19 @@ Erynn.
 
 ## Known issues
 
-- `IngestionUploadService` persists `queued` but never enqueues the job. Its class
-  docstring says it "does not yet perform ... persistence, or queueing", which is half
-  stale. → F1.
-- `ingestion_worker.main()` is demo-only, with no real worker entrypoint. → F1, where the
-  worker starts with the app.
-- The status repository has no "list documents" query, which the inventory endpoint needs. → F1.
-- The `kb_placeholder_a/b` defaults are in `ingestion_config_manager.py`, `.env.example`
-  and Ethan's `.env`. Their comments still point at the deleted `docs/decisions.md`.
-  → F1 (Ethan edits his `.env`).
-- requirements.txt pins `fastapi[standard]==0.142.2`, which pulls in sentry-sdk,
-  opentelemetry and fastapi-cloud-cli. → F1.
+- Starlette 1.7 (in `.venv`) warns that using `httpx` with its TestClient is deprecated
+  and suggests `httpx2`. It's only a warning, and tests pass. Starlette is transitive and
+  unpinned: the scratch venv resolved 1.9.0. Decide `httpx` vs `httpx2` before Starlette
+  removes httpx support.
+- `backend/tests/test_task1_ingestion_core.py` contains `# ... existing code ...` markers
+  and one test. It has looked like that since Erynn's first commit (`294b052`), so tests may
+  have been lost in an AI edit. Ask Erynn.
+- The in-memory queue isn't durable. A document that is `processing` when the process
+  dies stays `processing` forever, because the lifecycle has no processing → queued
+  transition. Queued documents are re-enqueued on startup.
+- The request-size cap is per request (`max_files_per_batch × max_size + 1 MB`, about
+  501 MB with the defaults). The per-file limit is enforced while the file is copied out of
+  Starlette's spool, not while it arrives over the network.
 - The global Python 3.11.9 has drifted from the pins (FastAPI 0.115.12, python-multipart
   0.0.6). The project `.venv` matches the pins (FastAPI 0.142.2, pypdf 6.20.1). Always
   use `.venv\Scripts\python`.
@@ -165,8 +195,9 @@ For Erynn:
    Streamlit need 3.9 or later. *Recommendation:* yes, before F2 lands.
 3. `.idea/` is tracked, so machine-specific IDE settings are in the repo.
    *Recommendation:* untrack it and add `.idea/` to `.gitignore`.
-4. Will you build the F5 Streamlit UI? If so, F1's API contract is what you build
-   against. *Recommendation:* review the F1 endpoints when they land.
+4. Will you build the F5 Streamlit UI? F1's API contract is in SPEC.md section 2 and at
+   `/docs`. *Recommendation:* review the endpoints and the F1 changes to your modules
+   (listed in the F1 session summary) before F5.
 5. The stack of four unmerged branches is growing. *Recommendation:* review and merge
    it into `main` soon, oldest first, so new work bases on `main` again.
 
@@ -178,6 +209,9 @@ For Ethan:
    corpus, not code.
 8. Please confirm the AI-written code list below. The pre-2026-10-20 entries are
    inferred from commit messages and the 2026-10-14 decisions.
+9. The decision log has "Not recorded" reasons for four of your F1 choices: re-enqueue,
+   the 202 status, size enforcement and leaving `.venv` alone. Please give the reasons
+   you'd defend.
 
 ## Evaluation numbers
 
@@ -192,6 +226,7 @@ coach-mode code is never on this list.
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-20 | `backend/app/api/api_app.py`, `api_errors.py`, `api_uploads.py`; tests `test_api_documents.py`, `test_api_uploads.py`, `test_ingestion_inventory.py`; `list_documents` and `count_documents_by_kb_and_status` in the status repository; `list_documents` and `_status_from_record` in the status service; `document_id`, `new_document_id` and `resolve_kb_id` in the upload service; `not_found` in the error model; `ruff.toml`; Ruff fixes in 4 test files and `ingestion_status_constants.py`; KB defaults; requirements.txt | Claude Code | Ethan (to review) | F1 |
 | 2026-10-20 | `AGENTS.md`, `CLAUDE.md`, `docs/SPEC.md`, `docs/PROGRESS.md`, `.claude/skills/decide/SKILL.md`, `.claude/skills/finish-feature/SKILL.md`, `.gitignore` additions, `data/corpus/MANIFEST.md` | Claude Code | Ethan | Docs and config only |
 | 2026-10-15 | `ingestion_chunking.py`, `ingestion_artifact_repository.py`, `ingestion_pipeline.py`, worker wiring, related tests (`4feb83c`) | Claude Code (inferred) | Ethan | To confirm |
 | 2026-10-15 | `kb_id` changes in metadata contract, status repository, upload service, config, stage contracts, tests (`2e44595`) | Claude Code (inferred) | Ethan | To confirm |

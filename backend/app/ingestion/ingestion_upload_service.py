@@ -38,6 +38,9 @@ class UploadFileInput(object):
       - upload_timestamp: UTC timestamp string, format YYYY-MM-DDTHH:MM:SSZ
       - temp_file_path: path to temporarily stored uploaded file, if available
       - source: ingestion source, defaults to UI
+      - document_id: pre-assigned ID for an accepted file, or None to generate
+        one. The HTTP API assigns it first so it can store the file under an
+        uploads/<document_id>/ directory before intake checks readability.
     """
 
     def __init__(
@@ -47,22 +50,24 @@ class UploadFileInput(object):
         upload_timestamp,
         temp_file_path=None,
         source=INGESTION_SOURCE_UI,
+        document_id=None,
     ):
-        # type: (str, int, str, str, str) -> None
+        # type: (str, int, str, str, str, str) -> None
         self.original_filename = original_filename
         self.file_size_bytes = file_size_bytes
         self.upload_timestamp = upload_timestamp
         self.temp_file_path = temp_file_path
         self.source = source
+        self.document_id = document_id
 
 
 class IngestionUploadService(object):
     """
     Handles initial upload intake for ingestion.
 
-    This service does not yet perform full validation, persistence, or queueing.
-    Those are covered by later subtasks:
-      - 3.x async queue/status lifecycle
+    Validates the batch, KB and each file, and persists every accepted file as
+    queued. It does not enqueue jobs: the caller (the HTTP API) enqueues each
+    accepted file after this returns.
     """
 
     def __init__(self, config=None,  status_repository=None):
@@ -136,7 +141,7 @@ class IngestionUploadService(object):
             response["errors"].append(batch_error)
             return response
 
-        kb_id, kb_error = self._resolve_kb_id(kb_id)
+        kb_id, kb_error = self.resolve_kb_id(kb_id)
         if kb_error is not None:
             response["status"] = "failed"
             response["errors"].append(kb_error)
@@ -207,7 +212,7 @@ class IngestionUploadService(object):
             )
         return None
 
-    def _resolve_kb_id(self, kb_id):
+    def resolve_kb_id(self, kb_id):
         # type: (str) -> tuple
         """Return (normalized_kb_id, None) or (None, unknown_kb error)."""
         normalized = kb_id.strip().lower() if isinstance(kb_id, str) else ""
@@ -315,7 +320,7 @@ class IngestionUploadService(object):
 
     def _create_accepted_file_entry(self, file_input, kb_id):
         # type: (UploadFileInput, str) -> dict
-        document_id = self._new_id("doc")
+        document_id = getattr(file_input, "document_id", None) or self.new_document_id()
         file_type = self._get_extension(file_input.original_filename)
 
         metadata = create_metadata_record(
@@ -364,6 +369,13 @@ class IngestionUploadService(object):
             return ""
         return os.path.splitext(filename)[1].lower()
 
-    def _new_id(self, prefix):
+    @classmethod
+    def new_document_id(cls):
+        # type: () -> str
+        """Return a fresh document ID in the format intake uses."""
+        return cls._new_id("doc")
+
+    @staticmethod
+    def _new_id(prefix):
         # type: (str) -> str
         return "{0}-{1}".format(prefix, uuid.uuid4().hex)

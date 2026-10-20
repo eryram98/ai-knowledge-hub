@@ -208,6 +208,52 @@ class SQLiteIngestionStatusRepository(object):
         finally:
             connection.close()
 
+    def list_documents(self, kb_id=None):
+        """Return every document (optionally one KB's), newest first, with history.
+
+        Same record shape as get_status_snapshot, read from one consistent
+        SQLite snapshot. Newest first means latest insert first (rowid).
+        """
+        where, params = ("WHERE kb_id = ?", (kb_id,)) if kb_id is not None else ("", ())
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN")
+            rows = connection.execute(
+                "SELECT * FROM ingestion_documents {0} ORDER BY rowid DESC".format(where), params,
+            ).fetchall()
+            history_rows = connection.execute(
+                "SELECT document_id, status, timestamp, reason, error_code "
+                "FROM ingestion_status_history WHERE document_id IN "
+                "(SELECT document_id FROM ingestion_documents {0}) ORDER BY id".format(where), params,
+            ).fetchall()
+            histories = {}
+            for item in history_rows:
+                histories.setdefault(item["document_id"], []).append(dict(item))
+            records = []
+            for row in rows:
+                result = dict(row)
+                result["metadata"] = json.loads(result.pop("metadata_json"))
+                result["history"] = histories.get(result["document_id"], [])
+                records.append(result)
+            return records
+        finally:
+            connection.close()
+
+    def count_documents_by_kb_and_status(self):
+        """Return {kb_id: {status: count}} for every KB and status that has documents."""
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT kb_id, ingestion_status, COUNT(*) AS document_count "
+                "FROM ingestion_documents GROUP BY kb_id, ingestion_status"
+            ).fetchall()
+            counts = {}
+            for row in rows:
+                counts.setdefault(row["kb_id"], {})[row["ingestion_status"]] = row["document_count"]
+            return counts
+        finally:
+            connection.close()
+
     def get_status_history(self, document_id):
         connection = self._connect()
         try:

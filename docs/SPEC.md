@@ -66,7 +66,7 @@ is added.
 
 | Feature | Dependency |
 |---|---|
-| F1 | `fastapi`, `uvicorn`, `python-multipart` (replace `fastapi[standard]`), `ruff` |
+| F1 | `fastapi`, `uvicorn`, `python-multipart` (replace `fastapi[standard]`), `httpx` (TestClient), `ruff` |
 | F2 | `sentence-transformers`, `chromadb`, a BM25 library (`rank-bm25` proposed) |
 | F4 | `google-genai` |
 | F5 | `streamlit` (needs 1.37 or later for `st.fragment(run_every=...)`) |
@@ -77,10 +77,28 @@ is added.
 .venv\Scripts\python -m pip install -r requirements.txt
 copy .env.example .env    # then set GEMINI_API_KEY and check the KB IDs
 .venv\Scripts\python -m unittest discover -s backend\tests
+.venv\Scripts\python -m ruff check backend
+.venv\Scripts\python -m uvicorn api.api_app:create_app --factory --app-dir backend\app --port 8000
 ```
 
-F1 adds the API start command and F5 adds the UI start command. Each command goes in
-this section when it exists.
+The last command starts the API at `http://127.0.0.1:8000`, with interactive docs at
+`/docs`. The background worker starts and stops with it. Run **one process only**: no
+`--workers`. Each process would get its own in-memory queue and worker thread.
+Uploaded files go to `backend/instance/uploads/<document_id>/` (git-ignored). F5 adds
+the UI start command here.
+
+**API (F1).** Every error uses the canonical body `{code, message, details}` (plus
+`field` or `file_name` when relevant). Status codes: `unknown_kb`, `validation_failed`
+and `batch_limit_exceeded` → 400; `not_found` → 404; `file_too_large` → 413;
+`internal_failure` → 500.
+
+| Endpoint | Returns |
+|---|---|
+| `POST /documents` (multipart: `kb_id`, one or more `files`) | 202 with per-file accepted or rejected results, even if every file was rejected. Every accepted file is enqueued. A request-level problem (unknown KB, too many files, body over the size cap) returns the canonical error instead. |
+| `GET /documents?kb_id=` | `{documents: [...]}`, newest first, without history |
+| `GET /documents/status?document_id=a&document_id=b` | Batch status: counts, progress, `missing_document_ids` |
+| `GET /documents/{id}` | Status, timestamps, `failure_code`, `failure_reason` and history |
+| `GET /kbs` | `{kbs: [{kb_id, counts: {queued, processing, success, failed}, total}]}` in config order |
 
 **Data layout.**
 - `data/corpus/<kb_id>/`: public documents, downloaded by hand. Git-ignored.
