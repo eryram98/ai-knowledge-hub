@@ -1,5 +1,10 @@
-# Web framework + standard extras (uvicorn, httpx, python-multipart, jinja2,
-# email-validator, pydantic-settings, fastapi-cli, etc.)
-fastapi[standard]==0.142.2
+# API
+fastapi==0.142.2
+uvicorn==0.54.0
+python-multipart==0.0.32
 pypdf>=4.0
 python-dotenv>=1.0
+
+# Tests and lint
+httpx==0.28.1  # FastAPI's TestClient
+ruff==0.17.1
