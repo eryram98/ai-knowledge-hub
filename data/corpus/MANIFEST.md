@@ -6,3 +6,4 @@ from the URLs.
 
 | Title | File | URL | KB | Downloaded on |
 |---|---|---|---|---|
+| Raspberry Pi Pico Datasheet | `hw_datasheets/pico-datasheet.pdf` | https://datasheets.raspberrypi.com/pico/pico-datasheet.pdf | hw_datasheets | 2026-10-20 |

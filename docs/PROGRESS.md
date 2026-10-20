@@ -5,43 +5,46 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 ## Now
 
 - **Branch stack (unmerged, oldest first):** `feat/text-extraction` → `chore/claude-code-setup`
-  → `feat/kb-id` → `feat/pipeline-baseline` → `ethan/project-setup` → `ethan/f1-api`.
-  Base new branches on `ethan/f1-api` until the stack merges into `main`.
-- **Current feature:** none. F1 (HTTP API) is done on `ethan/f1-api`.
-- **Next concrete step:** start F2 (indexing) on `ethan/f2-indexing`, based on
-  `ethan/f1-api`. First ask Ethan to approve the F2 dependencies (`sentence-transformers`,
-  `chromadb`, `rank-bm25`) with exact pins, and settle the BM25 library (still open).
+  → `feat/kb-id` → `feat/pipeline-baseline` → `ethan/project-setup` → `ethan/f1-api`
+  → `ethan/f2-indexing`. Base new branches on `ethan/f2-indexing` until the stack merges
+  into `main`.
+- **Current feature:** none. F2 (indexing) is done on `ethan/f2-indexing`.
+- **Next concrete step:** F3 (retrieval plumbing) on `ethan/f3-retrieval`. Claude builds
+  the per-KB vector and keyword ranked lists with chunk text and source metadata, filters
+  hits to `success` documents (see Known issues), and writes the merge interface and its
+  tests. Ethan implements RRF (coach mode): think about the design before that session.
 - **Ethan by hand:**
-  - Your `.env` already has `it_policies,hw_datasheets`. Only its comment on line 11
-    still points at the deleted `docs/decisions.md`.
-  - Download public documents into `data/corpus/it_policies/` and
-    `data/corpus/hw_datasheets/`, and list each one in `data/corpus/MANIFEST.md`.
-  - Try the API by hand (see the session summary): start it, open `/docs`, upload a file.
+  - Your `.env` comment on line 11 still points at the deleted `docs/decisions.md`.
+  - Add public documents for `it_policies` (none yet) and more datasheets, each listed in
+    `data/corpus/MANIFEST.md`. The Pico datasheet is in `hw_datasheets/` now.
+  - Optional: set `HF_HUB_OFFLINE=1` in your shell now that bge-small is cached.
 
 ## Countdown and risk (as of 2026-10-20)
 
 - **7 days to the progress demo (2026-10-27). 49 days to the final demo (2026-12-08).**
 - At risk:
-  1. F1 is done. That leaves five one-session features (F2-F6) in 7 days, with no
-     slack. If a day is lost, cut F6's eval script down to routing accuracy only, not
-     the demo itself.
+  1. F1 and F2 are done. F3-F6 remain in 7 days. If a day is lost, cut F6's eval script
+     down to routing accuracy only, not the demo itself.
   2. F3 and F4 depend on Ethan's coach-mode code (the RRF merge and the router). The
-     `/ask` endpoint can't be demoed until both exist. Start thinking about both
-     designs now.
-  3. F2 downloads bge-small (about 130 MB) and installs torch through
-     sentence-transformers. That's a large first install on the demo laptop.
-  4. The corpus doesn't exist yet: `data/corpus/` is empty, and F2 manual testing and
-     F6 need real documents.
-  5. Gemini free-tier quotas during rehearsal and the demo (see the SPEC fallbacks).
+     `/ask` endpoint can't be demoed until both exist.
+  3. The F2 install is 1.3 GB and took about 6.5 minutes; bge-small is a 128 MB
+     download. Install and cache both on the demo laptop well before the demo, then use
+     `HF_HUB_OFFLINE=1`.
+  4. The corpus has one document (Pico datasheet in `hw_datasheets`); `it_policies` is
+     empty. F6 needs both KBs.
+  5. Baseline retrieval on the datasheet is weak for some questions (manual run below):
+     fixed 1000-character chunks split tables and sections. Expected, and it is the Table
+     Challenge motivation, but pick demo questions carefully.
+  6. Gemini free-tier quotas during rehearsal and the demo (see the SPEC fallbacks).
 
 ## Features
 
 | # | Feature | Status | Branch | Commit |
 |---|---|---|---|---|
 | F0 | Project setup: AGENTS.md, SPEC.md, PROGRESS.md | Done | `ethan/project-setup` | `f8be5c7` |
-| F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Done | `ethan/f1-api` | `1693e82`, `f077c3c`, `4e7eae5` (chores), this commit |
-| F2 | Indexing: bge-small, Chroma and BM25 per KB | Next | | |
-| F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | To do | | |
+| F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Done | `ethan/f1-api` | `1693e82`, `f077c3c`, `4e7eae5` (chores), `1aeffe8`, `c1df404` |
+| F2 | Indexing: bge-small, Chroma and BM25 per KB | Done | `ethan/f2-indexing` | this commit |
+| F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Next | | |
 | F4 | `/ask`: routing (Ethan, coach), grounded Gemini answer, sources | To do | | |
 | F5 | Streamlit UI: Documents and Ask pages | To do (Erynn likely) | | |
 | F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | To do | | |
@@ -83,6 +86,29 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 ## Session log
 
+- **2026-10-20 · Ethan + Claude · `ethan/f2-indexing` · F2.**
+  - Repo moved out of OneDrive (decision logged); no paths needed changing.
+  - Dependencies verified in a scratch venv first: install 394 s, venv 1,334 MB (torch
+    506 MB). Chroma 1.5.9 checks: `embedding_function=None` really disables the default
+    ONNX embedder (no download, `query_texts` raises); None metadata values are rejected;
+    every in-memory client in a process shares one store, `reset()` empties it for all,
+    and a second in-memory client with different settings raises; a PersistentClient
+    holds file locks on Windows (WinError 32 on delete) until `client.close()`;
+    `get_or_create_collection` keeps the original metadata (the model guard relies on it);
+    telemetry off via `Settings(anonymized_telemetry=False)`.
+  - New `backend/app/indexing/` package. The worker now runs extract → chunk → persist →
+    embed → index and marks success only after indexing. Startup fails documents left
+    `processing` and removes their vectors.
+  - Tests: 225 run, OK, 3 skipped (the opt-in model tests), in `.venv` and in the scratch
+    venv built only from requirements.txt. Ruff clean. The model test passed once with
+    `RUN_MODEL_TESTS=1` (3 tests, 28 s including the first download).
+  - Manual run (real uvicorn, dev DB, real model): the Pico datasheet (18 MB PDF) in
+    `hw_datasheets` reached `success` 68 s after upload, including the first model load.
+    58 chunks in SQLite = 58 Chroma entries. BM25 "gpio" returns 5 chunks (pages 4-20).
+    Vector queries: "input voltage range" → pages 20-24 (power section, relevant);
+    "board dimensions" → page 7 "51×21 mm" at rank 2; "flash memory" → weak (a page 13
+    benchmark table first). Timings: model load + first query 10.1 s; warm embedding
+    8.2 chunks/s (58 chunks of 1000 chars in 7.0 s, CPU); BM25 build + query 0.02 s.
 - **2026-10-20 · Ethan + Claude · `ethan/f1-api` · F1.**
   - Chores: added Ruff (rules E and F, line length 120, E402 ignored in tests) and
     fixed what it flagged with no behavior change; slimmed FastAPI dependencies
@@ -111,6 +137,13 @@ unless marked "(Claude, small call)".
 
 | Date | Decision | Choice | Alternatives ruled out (why) | Owner |
 |---|---|---|---|---|
+| 2026-10-20 | F2 dependencies | `sentence-transformers==6.1.0`, `torch==2.14.1`, `chromadb==1.5.9`, `rank-bm25==0.2.2` under "# Indexing". Accepted side effect: Chroma pulls back `uvicorn[standard]`, opentelemetry, kubernetes and grpcio. Linux needs the CPU torch index (SPEC section 2). | | Ethan |
+| 2026-10-20 | F2 index layout | Collection `kb_<kb_id>`, cosine, `embedding_function=None`; IDs are our chunk_id; chunk text only in SQLite; each collection records `embedding_model` and a mismatch is refused; model name and query prefix are code constants; interrupted documents use `internal_failure`; F2 exposes raw `query -> [(chunk_id, score)]`, and F3 owns ranked lists, text, metadata, the merge interface and endpoints | | Ethan |
+| 2026-10-20 | BM25 corpus | Chunks of documents in `success` only (`list_kb_chunks` joins the status table). The worker's `on_finished` hook invalidates the KB's BM25, so a finished document is searchable on the next query. | Index chunks as soon as they are persisted (a processing or later-failed document would show up in keyword results) (Claude, small call) | Ethan |
+| 2026-10-20 | BM25 hit rule | A chunk is a hit if it shares a query term, ranked by BM25 score | `score > 0` (BM25Okapi's IDF is negative for a term in most chunks of a small KB, so a single-chunk KB never matched) (Claude, small call) | Ethan |
+| 2026-10-20 | Indexer in the pipeline | `DocumentProcessor` requires `indexer=` and indexes the chunks read back from SQLite after persisting | Optional indexer (a silent path to success without indexing); indexing the chunk generator (persistence has already consumed it) (Claude, small call) | Ethan |
+| 2026-10-20 | Default Chroma path in `create_app` | `chroma/` beside the status repository's DB file, which is `backend/instance/chroma/` for the dev DB | Always `backend/instance/chroma/` (a test with a temp DB that forgot to inject an index would write to the dev Chroma) (Claude, small call) | Ethan |
+| 2026-10-20 | Repo location | Moved from OneDrive to `C:\dev\ai-knowledge-hub`, `.venv` rebuilt from requirements.txt (178 tests and Ruff passed after the move). No absolute paths in AGENTS.md, SPEC.md or PROGRESS.md needed changing. | Stay in OneDrive (it locks SQLite and Chroma files while syncing them, and syncs the ~1 GB venv) | Ethan |
 | 2026-10-20 | Paths in API responses | `temp_file_path` is stripped from every API response. It stays in the service-layer result for the worker. A test checks that no response contains it or the local upload path. | Return it unchanged (it leaks an absolute local path) | Ethan |
 | 2026-10-20 | Re-enqueue on startup | Documents still `queued` in SQLite are re-enqueued when the app starts, oldest first. A queued row with no stored file is skipped with a warning. | No re-enqueue (any restart, including `--reload` during the demo, would leave documents stuck in `queued` forever; re-enqueue is cheap to add and testable) | Ethan |
 | 2026-10-20 | `POST /documents` status code | 202 with per-file results whenever the request itself is valid, even if every file was rejected. Request-level errors (unknown KB, batch limit, body over the cap) return the canonical error. | Return the shared code's status (for example 413) when no file is accepted (loses the per-file list). 202 because processing is asynchronous, so 202 Accepted is the correct HTTP semantics, and one response shape (per-file results) keeps the client simple. | Ethan |
@@ -146,8 +179,8 @@ unless marked "(Claude, small call)".
 | 2026-10-14 | PDF baseline extractor | pypdf text layer, no OCR | (baseline only; the table-aware method is decided separately in F8) | Ethan |
 
 Still open (decide when the feature needs it): Table Challenge approach (F8, coach), re-ranker
-model (F7, coach), BM25 library (F2, `rank-bm25` proposed), PR review and CI workflow with
-Erynn, `httpx` vs `httpx2` for TestClient (see Known issues).
+model (F7, coach), PR review and CI workflow with Erynn, `httpx` vs `httpx2` for TestClient
+(see Known issues), retiring the unused `EmbeddingStage`/`IndexingStage` contracts.
 
 Correction to the 2026-10-20 "FastAPI packaging" row: slim `fastapi` 0.142 still depends on
 `opentelemetry-api` (the small no-op API package). The `[standard]` extras that are now gone
@@ -162,16 +195,29 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
 
 ## Known issues
 
-- Starlette 1.7 (in `.venv`) warns that using `httpx` with its TestClient is deprecated
-  and suggests `httpx2`. It's only a warning, and tests pass. Starlette is transitive and
-  unpinned: the scratch venv resolved 1.9.0. Decide `httpx` vs `httpx2` before Starlette
+- **For F3:** Chroma receives a document's vectors just before its `success` status, and
+  a failed re-process removes them only best-effort. F3 must filter vector hits to
+  documents in `success`. BM25 already covers `success` documents only.
+- The API keeps one Chroma PersistentClient open for its lifetime and never calls
+  `close()`. Fine for one process, but on Windows the Chroma directory can't be deleted
+  while the server runs.
+- Loading bge-small with network access prints "You are sending unauthenticated requests
+  to the HF Hub", because it checks the Hub on each load. `HF_HUB_OFFLINE=1` stops it.
+- The `EmbeddingStage` and `IndexingStage` contracts in `ingestion_stage_contracts.py`
+  are unused: F2's `Embedder` and `DocumentIndexer` have different shapes. Retiring them
+  is an open question for Ethan and Erynn.
+- The Linux torch instructions in SPEC section 2 are untested (no Linux machine here).
+- Starlette (1.9.0 in the rebuilt `.venv`) warns that using `httpx` with its TestClient is
+  deprecated and suggests `httpx2`. It's only a warning, and tests pass. Starlette is
+  transitive and unpinned. Decide `httpx` vs `httpx2` before Starlette
   removes httpx support.
 - `backend/tests/test_task1_ingestion_core.py` contains `# ... existing code ...` markers
   and one test. It has looked like that since Erynn's first commit (`294b052`), so tests may
   have been lost in an AI edit. Ask Erynn.
-- The in-memory queue isn't durable. A document that is `processing` when the process
-  dies stays `processing` forever, because the lifecycle has no processing → queued
-  transition. Queued documents are re-enqueued on startup.
+- The in-memory queue isn't durable. Since F2, a document left `processing` when the
+  process dies is marked `failed` on the next startup ("interrupted by server restart").
+  It has to be re-uploaded, because the lifecycle has no processing → queued transition.
+  Queued documents are re-enqueued on startup.
 - The request-size cap is per request (`max_files_per_batch × max_size + 1 MB`, about
   501 MB with the defaults). The per-file limit is enforced while the file is copied out of
   Starlette's spool, not while it arrives over the network.
@@ -223,6 +269,7 @@ coach-mode code is never on this list.
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-20 | `backend/app/indexing/` (all four modules); indexing step in `ingestion_pipeline.py`; `list_kb_chunks` in the artifact repository; `on_finished` in `ingestion_worker.py`; `indexing_failure` in the error model; F2 wiring and `_fail_interrupted_documents` in `api_app.py`; tests `indexing_fakes.py` and six `test_indexing_*.py` files, plus F2 additions to `test_api_documents.py`, `test_ingestion_worker.py`, `test_ingestion_pipeline_e2e.py` and `test_ingestion_error_model.py`; the requirements.txt indexing group | Claude Code | Ethan (to review) | F2 |
 | 2026-10-20 | `backend/app/api/api_app.py`, `api_errors.py`, `api_uploads.py`; tests `test_api_documents.py`, `test_api_uploads.py`, `test_ingestion_inventory.py`; `list_documents` and `count_documents_by_kb_and_status` in the status repository; `list_documents` and `_status_from_record` in the status service; `document_id`, `new_document_id` and `resolve_kb_id` in the upload service; `not_found` in the error model; `ruff.toml`; Ruff fixes in 4 test files and `ingestion_status_constants.py`; KB defaults; requirements.txt | Claude Code | Ethan (to review) | F1 |
 | 2026-10-20 | `AGENTS.md`, `CLAUDE.md`, `docs/SPEC.md`, `docs/PROGRESS.md`, `.claude/skills/decide/SKILL.md`, `.claude/skills/finish-feature/SKILL.md`, `.gitignore` additions, `data/corpus/MANIFEST.md` | Claude Code | Ethan | Docs and config only |
 | 2026-10-15 | `ingestion_chunking.py`, `ingestion_artifact_repository.py`, `ingestion_pipeline.py`, worker wiring, related tests (`4feb83c`) | Claude Code (inferred) | Ethan | To confirm |

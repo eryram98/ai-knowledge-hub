@@ -4,8 +4,13 @@ Run from the repo root (one process only; see docs/SPEC.md, section 2):
     .venv\\Scripts\\python -m uvicorn api.api_app:create_app --factory --app-dir backend\\app
 
 The app owns one in-memory job queue and one background worker thread. The
-worker starts with the app and stops on shutdown. Documents still queued in
-SQLite when the app starts (for example after a restart) are enqueued again.
+worker starts with the app and stops on shutdown. On startup, documents left
+processing by a previous run are marked failed (their vectors removed), and
+documents still queued in SQLite are enqueued again.
+
+The worker embeds and indexes each document (F2). The embedder, the Chroma
+vector index, the BM25 keyword index and the indexer live on app.state for
+retrieval (F3).
 """
 
 import logging
@@ -26,16 +31,25 @@ from api.api_uploads import (
     save_upload,
     upload_path,
 )
+from indexing.indexing_embedder import BgeSmallEmbedder
+from indexing.indexing_keyword_index import BM25KeywordIndex
+from indexing.indexing_service import DocumentIndexer
+from indexing.indexing_vector_index import ChromaVectorIndex
 from ingestion.ingestion_artifact_repository import SQLiteArtifactRepository
 from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_error_model import (
+    ERROR_INTERNAL_FAILURE,
     ERROR_NOT_FOUND,
     ERROR_VALIDATION_FAILED,
     build_ingestion_error,
 )
 from ingestion.ingestion_job_queue import IngestionJob, InMemoryIngestionJobQueue
 from ingestion.ingestion_pipeline import DocumentProcessor
-from ingestion.ingestion_status_constants import INGESTION_STATUS_QUEUED, INGESTION_STATUSES
+from ingestion.ingestion_status_constants import (
+    INGESTION_STATUS_PROCESSING,
+    INGESTION_STATUS_QUEUED,
+    INGESTION_STATUSES,
+)
 from ingestion.ingestion_status_repository import DEFAULT_DATABASE_PATH, SQLiteIngestionStatusRepository
 from ingestion.ingestion_status_service import IngestionStatusService
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
@@ -46,6 +60,7 @@ LOGGER = logging.getLogger(__name__)
 # backend/instance/uploads/, next to the dev database (git-ignored).
 DEFAULT_UPLOAD_DIR = os.path.join(os.path.dirname(DEFAULT_DATABASE_PATH), "uploads")
 DEFAULT_WORKER_JOIN_TIMEOUT_SECONDS = 10.0
+INTERRUPTED_REASON = "interrupted by server restart"
 
 # Kept in the service-layer result for the worker, never sent to clients:
 # it is an absolute local path.
@@ -53,10 +68,14 @@ PRIVATE_FILE_FIELDS = ("temp_file_path",)
 
 
 def create_app(config=None, status_repository=None, artifact_repository=None, upload_dir=None,
-               worker_join_timeout=DEFAULT_WORKER_JOIN_TIMEOUT_SECONDS):
-    """Build the API. Every argument is injectable so tests can use a temp DB and upload dir.
+               worker_join_timeout=DEFAULT_WORKER_JOIN_TIMEOUT_SECONDS, embedder=None, vector_index=None,
+               keyword_index=None):
+    """Build the API. Every argument is injectable so tests can use a temp DB, upload dir and indexes.
 
-    The artifact repository defaults to the status repository's database file.
+    The artifact repository defaults to the status repository's database file,
+    and the Chroma directory to chroma/ beside that file
+    (backend/instance/chroma/ for the dev DB). The embedder defaults to
+    bge-small, which loads on the first document, not at startup.
     """
     config = config if config is not None else IngestionConfig()
     status_repository = (
@@ -66,6 +85,13 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
         artifact_repository if artifact_repository is not None
         else SQLiteArtifactRepository(status_repository.database_path)
     )
+    embedder = embedder if embedder is not None else BgeSmallEmbedder()
+    vector_index = (
+        vector_index if vector_index is not None
+        else ChromaVectorIndex.persistent(os.path.join(os.path.dirname(status_repository.database_path), "chroma"))
+    )
+    keyword_index = keyword_index if keyword_index is not None else BM25KeywordIndex(artifact_repository)
+    indexer = DocumentIndexer(embedder, vector_index, keyword_index)
     upload_root = os.path.abspath(upload_dir if upload_dir is not None else DEFAULT_UPLOAD_DIR)
     os.makedirs(upload_root, exist_ok=True)
 
@@ -75,11 +101,24 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
 
     @asynccontextmanager
     async def lifespan(app):
+        interrupted = _fail_interrupted_documents(status_repository, vector_index)
+        if interrupted:
+            LOGGER.warning("Marked %d document(s) failed: still processing when the server stopped", interrupted)
         requeued = _requeue_queued_documents(status_repository, job_queue)
         if requeued:
             LOGGER.info("Re-enqueued %d document(s) still queued from a previous run", requeued)
-        processor = DocumentProcessor(status_repository, artifact_repository, config=config)
-        thread, stop_event = start_background_worker(job_queue, processor, status_repository=status_repository)
+        processor = DocumentProcessor(status_repository, artifact_repository, config=config, indexer=indexer)
+
+        def refresh_keyword_index(job, _status):
+            # BM25 only covers documents in success, so a finished document
+            # becomes keyword-searchable on the next query.
+            document = status_repository.get_document(job.document_id)
+            if document is not None:
+                keyword_index.invalidate(document["kb_id"])
+
+        thread, stop_event = start_background_worker(
+            job_queue, processor, status_repository=status_repository, on_finished=refresh_keyword_index,
+        )
         app.state.worker_thread = thread
         try:
             yield
@@ -95,6 +134,10 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
     app.state.config = config
     app.state.status_repository = status_repository
     app.state.artifact_repository = artifact_repository
+    app.state.embedder = embedder
+    app.state.vector_index = vector_index
+    app.state.keyword_index = keyword_index
+    app.state.indexer = indexer
     app.state.upload_dir = upload_root
     app.state.job_queue = job_queue
     app.state.worker_thread = None
@@ -198,6 +241,25 @@ def _public_upload_response(response):
         for entry in response["files"]
     ]
     return public
+
+
+def _fail_interrupted_documents(status_repository, vector_index):
+    """Mark documents left processing by a previous run failed and drop their vectors; return how many.
+
+    The in-memory queue lost their jobs, and the lifecycle has no way back to
+    queued. Re-uploading the file processes it again.
+    """
+    count = 0
+    for record in status_repository.list_documents():
+        if record["ingestion_status"] != INGESTION_STATUS_PROCESSING:
+            continue
+        status_repository.mark_failed(record["document_id"], INTERRUPTED_REASON, ERROR_INTERNAL_FAILURE)
+        try:
+            vector_index.delete_document(record["kb_id"], record["document_id"])
+        except Exception:
+            LOGGER.exception("Could not remove vectors of interrupted document %s", record["document_id"])
+        count += 1
+    return count
 
 
 def _requeue_queued_documents(status_repository, job_queue):

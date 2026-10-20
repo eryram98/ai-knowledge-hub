@@ -1,4 +1,4 @@
-"""End to end: upload -> queue -> worker -> extract -> baseline chunks -> SQLite (tasks 5.1-6.5, 8.3)."""
+"""End to end: upload -> queue -> worker -> extract -> baseline chunks -> SQLite -> indexes (tasks 5.1-6.5, 8.3, F2)."""
 
 from contextlib import closing
 import os
@@ -13,6 +13,7 @@ for path in (APP_DIR, CURRENT_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+from indexing_fakes import make_indexer
 from pdf_fixtures import HAS_PYPDF, build_pdf
 
 from ingestion.ingestion_artifact_repository import SQLiteArtifactRepository
@@ -43,9 +44,12 @@ class TestPipelineEndToEnd(unittest.TestCase):
         self.status_repository = SQLiteIngestionStatusRepository(self.db_path)
         self.artifact_repository = SQLiteArtifactRepository(self.db_path)
         self.upload_service = IngestionUploadService(status_repository=self.status_repository)
+        # Fake embedder and in-memory Chroma: no model download (F2).
+        self.indexer = make_indexer(self, self.artifact_repository)
         # Small windows so every test document yields several chunks.
         self.processor = DocumentProcessor(
             self.status_repository, self.artifact_repository, chunker=FixedSizeCharChunker(30, 5),
+            indexer=self.indexer,
         )
 
     def write(self, name, content):
@@ -92,6 +96,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
             self.assertIsNotNone(text, name)
             chunks = self.artifact_repository.get_chunks(document_id, CHUNKER)
             self.assertGreater(len(chunks), 1, name)
+            self.assertEqual(self.indexer.vector_index.count(KB_ID, document_id=document_id), len(chunks), name)
             for chunk in chunks:
                 self.assertEqual(chunk["document_id"], document_id)
                 self.assertEqual(chunk["kb_id"], KB_ID)
@@ -141,6 +146,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         second = self.processor(job)
         self.assertEqual(first, second)
         self.assertEqual(self.artifact_repository.count_chunks(document_id=entry["document_id"]), first)
+        self.assertEqual(self.indexer.vector_index.count(KB_ID, document_id=entry["document_id"]), first)
 
 
 if __name__ == "__main__":

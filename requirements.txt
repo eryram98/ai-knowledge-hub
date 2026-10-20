@@ -5,6 +5,13 @@ python-multipart==0.0.32
 pypdf>=4.0
 python-dotenv>=1.0
 
+# Indexing (F2). PyPI's Windows torch wheels are CPU-only; on Linux install torch
+# from https://download.pytorch.org/whl/cpu first (docs/SPEC.md, section 2).
+sentence-transformers==6.1.0
+torch==2.14.1
+chromadb==1.5.9
+rank-bm25==0.2.2
+
 # Tests and lint
 httpx==0.28.1  # FastAPI's TestClient
 ruff==0.17.1

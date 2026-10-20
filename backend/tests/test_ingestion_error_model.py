@@ -16,6 +16,7 @@ from ingestion.ingestion_error_model import (
     ERROR_VALIDATION_FAILED,
     ERROR_INTERNAL_FAILURE,
     ERROR_UNKNOWN_KB,
+    ERROR_INDEXING_FAILURE,
     is_valid_error_code,
     get_error_message,
     build_ingestion_error,
@@ -34,6 +35,11 @@ class TestIngestionErrorModel(unittest.TestCase):
         err = build_ingestion_error(ERROR_UNKNOWN_KB, field="kb_id")
         self.assertEqual(err["code"], "unknown_kb")
         self.assertIn("knowledge base", err["message"].lower())
+
+    def test_indexing_failure_is_canonical(self):
+        self.assertEqual(ERROR_INDEXING_FAILURE, "indexing_failure")
+        self.assertTrue(is_valid_error_code(ERROR_INDEXING_FAILURE))
+        self.assertEqual(get_error_message(ERROR_INDEXING_FAILURE), "Embedding or indexing failed for this document.")
 
     def test_get_error_message_known(self):
         message = get_error_message(ERROR_EXTRACTION_FAILURE)

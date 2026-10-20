@@ -17,6 +17,7 @@ for path in (APP_DIR, CURRENT_DIR):
 
 from fastapi.testclient import TestClient
 
+from indexing_fakes import FakeEmbedder, ephemeral_vector_index
 from pdf_fixtures import HAS_PYPDF, build_pdf
 
 from api.api_app import create_app
@@ -50,8 +51,13 @@ class ApiTestCase(unittest.TestCase):
         self.upload_dir = os.path.join(self.tmp, "uploads")
         self.status_repository = SQLiteIngestionStatusRepository(os.path.join(self.tmp, "api.sqlite3"))
         self.config = make_config()
+        # Fake embedder and in-memory Chroma: otherwise the app would load bge-small and
+        # write to backend/instance/chroma/.
+        self.embedder = FakeEmbedder()
+        self.vector_index = ephemeral_vector_index(self)
         self.app = create_app(
             config=self.config, status_repository=self.status_repository, upload_dir=self.upload_dir,
+            embedder=self.embedder, vector_index=self.vector_index,
         )
         self.responses = []
 
@@ -125,7 +131,9 @@ class TestUploadEndToEnd(ApiTestCase):
                 self.assertIsNone(status["failure_code"])
                 self.assertIsNone(status["failure_reason"])
                 self.assertTrue(os.path.isfile(os.path.join(self.upload_dir, document_id, name)))
-                self.assertGreater(self.app.state.artifact_repository.count_chunks(document_id=document_id), 0)
+                chunk_count = self.app.state.artifact_repository.count_chunks(document_id=document_id)
+                self.assertGreater(chunk_count, 0)
+                self.assertEqual(self.vector_index.count(KB_IDS[0], document_id=document_id), chunk_count)
 
             inventory = self.call(client, "GET", "/documents").json()["documents"]
             self.assertEqual(sorted(d["document_id"] for d in inventory), sorted(ids.values()))
@@ -346,6 +354,64 @@ class TestLifespan(ApiTestCase):
         self.assertEqual(self.status_repository.get_document(no_file)["ingestion_status"], "queued")
         self.assertTrue(any("Re-enqueued 1 document" in line for line in logs.output), logs.output)
         self.assertTrue(any(no_file in line for line in logs.output), logs.output)
+
+    def test_documents_left_processing_are_failed_and_their_vectors_removed(self):
+        stored = os.path.join(self.tmp, "crashed.txt")
+        with open(stored, "wb") as handle:
+            handle.write(TXT)
+        intake = IngestionUploadService(config=self.config, status_repository=self.status_repository)
+        response = intake.create_upload_request([
+            UploadFileInput("crashed.txt", len(TXT), "2026-10-20T12:00:00Z", temp_file_path=stored),
+        ], KB_IDS[0])
+        crashed = response["files"][0]["document_id"]
+        self.status_repository.mark_processing(crashed)
+        self.vector_index.replace_document(
+            KB_IDS[0], crashed, "fixed-size-char-baseline",
+            [{"chunk_id": crashed + ":c0", "chunk_index": 0}], [FakeEmbedder.vector("half written")],
+        )
+
+        with self.assertLogs("api.api_app", level="WARNING") as logs:
+            with self.client() as client:
+                status = self.call(client, "GET", "/documents/{0}".format(crashed)).json()
+        self.assertEqual(status["ingestion_status"], "failed")
+        self.assertEqual(status["failure_code"], "internal_failure")
+        self.assertEqual(status["failure_reason"], "interrupted by server restart")
+        self.assertEqual(self.vector_index.count(KB_IDS[0], document_id=crashed), 0)
+        self.assertTrue(any("Marked 1 document(s) failed" in line for line in logs.output), logs.output)
+
+
+class TestIndexingWiring(ApiTestCase):
+    def test_indexing_parts_are_on_app_state(self):
+        self.assertIs(self.app.state.embedder, self.embedder)
+        self.assertIs(self.app.state.vector_index, self.vector_index)
+        self.assertIs(self.app.state.indexer.vector_index, self.vector_index)
+        self.assertIs(self.app.state.keyword_index, self.app.state.indexer.keyword_index)
+
+    def test_uploaded_document_is_searchable_by_vector_and_keyword_after_success(self):
+        with self.client() as client:
+            body = self.upload(client, [("pins.txt", b"GPIO17 is UART0 RX on the RP2040 board. " * 3)],
+                               kb_id=KB_IDS[1]).json()
+            document_id = body["files"][0]["document_id"]
+            status = self.wait_for_terminal(client, [document_id])[document_id]
+        self.assertEqual(status["ingestion_status"], "success")
+        chunker = "fixed-size-char-baseline"
+        keyword_hits = self.app.state.keyword_index.query(KB_IDS[1], "gpio17", chunker, 5)
+        self.assertTrue(keyword_hits)
+        vector_hits = self.vector_index.query(KB_IDS[1], self.embedder.embed_query("gpio17 uart0"), chunker, 5)
+        self.assertTrue(vector_hits)
+        self.assertTrue(all(h[0].startswith(document_id) for h in keyword_hits + vector_hits))
+        self.assertEqual(self.app.state.keyword_index.query(KB_IDS[0], "gpio17", chunker, 5), [])
+
+    def test_indexing_failure_reports_canonical_code(self):
+        self.embedder.fail_with = RuntimeError("model unavailable")
+        with self.client() as client, self.assertLogs("ingestion.ingestion_worker", level="ERROR"):
+            body = self.upload(client, [("a.txt", TXT)]).json()
+            document_id = body["files"][0]["document_id"]
+            status = self.wait_for_terminal(client, [document_id])[document_id]
+        self.assertEqual(status["ingestion_status"], "failed")
+        self.assertEqual(status["failure_code"], "indexing_failure")
+        self.assertIn("model unavailable", status["failure_reason"])
+        self.assertEqual(self.vector_index.count(KB_IDS[0]), 0)
 
 
 if __name__ == "__main__":

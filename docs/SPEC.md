@@ -47,9 +47,9 @@ sources.
 | API | FastAPI (slim: `fastapi` + `uvicorn` + `python-multipart`, from F1) |
 | Database | SQLite, single writer, local. Dev DB at `backend/instance/ingestion.sqlite3` (git-ignored). No migrations: a schema change means deleting the dev DB. |
 | Text extraction | pypdf (baseline), plain TXT and MD |
-| Embeddings | `BAAI/bge-small-en-v1.5`, local, via sentence-transformers |
-| Vector store | Chroma, persistent on disk at `backend/instance/chroma/`, one collection per KB |
-| Keyword search | BM25, one index per KB |
+| Embeddings | `BAAI/bge-small-en-v1.5`, local on CPU, via sentence-transformers (from F2). 384 dimensions, normalized; the bge query instruction goes on queries only. The model name is a code constant, not `.env`. |
+| Vector store | Chroma, persistent on disk at `backend/instance/chroma/` (git-ignored), one collection `kb_<kb_id>` per KB, cosine distance, vectors from our embedder (Chroma's own embedder is off). Chunk text stays in SQLite. |
+| Keyword search | BM25 (`rank-bm25`), one in-memory index per KB and chunker, built lazily from SQLite chunks of `success` documents |
 | LLM | Gemini Flash (the current model from AI Studio's model list) through the Gemini API free tier, behind a provider interface. Claude Haiku or Ollama can be swapped in through `.env`. |
 | UI | Streamlit, HTTP-only client of the API |
 | Tests | `unittest`. The LLM is mocked in every test. |
@@ -67,7 +67,7 @@ is added.
 | Feature | Dependency |
 |---|---|
 | F1 | `fastapi`, `uvicorn`, `python-multipart` (replace `fastapi[standard]`), `httpx` (TestClient), `ruff` |
-| F2 | `sentence-transformers`, `chromadb`, a BM25 library (`rank-bm25` proposed) |
+| F2 | `sentence-transformers==6.1.0`, `torch==2.14.1`, `chromadb==1.5.9`, `rank-bm25==0.2.2` (Chroma also pulls in `uvicorn[standard]`, opentelemetry, kubernetes and grpcio) |
 | F4 | `google-genai` |
 | F5 | `streamlit` (needs 1.37 or later for `st.fragment(run_every=...)`) |
 
@@ -81,11 +81,30 @@ copy .env.example .env    # then set GEMINI_API_KEY and check the KB IDs
 .venv\Scripts\python -m uvicorn api.api_app:create_app --factory --app-dir backend\app --port 8000
 ```
 
+**Indexing notes (F2).**
+- The install is large: a fresh venv from requirements.txt measured 1,334 MB (torch is
+  506 MB of that) and took about 6.5 minutes on the dev laptop.
+- PyPI's Windows torch wheels are CPU-only. **On Linux**, install the CPU wheel first, or
+  pip pulls the multi-GB CUDA build:
+  `pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu`, then
+  `pip install -r requirements.txt`.
+- The first processed document downloads bge-small (about 128 MB) into the Hugging Face
+  cache, `%USERPROFILE%\.cache\huggingface`. Once it is cached, set `HF_HUB_OFFLINE=1`
+  for the demo so a network hiccup can't stop model loading.
+- The model loads on the first document, not at startup (about 10 s on the dev laptop).
+- Changing the embedding model means deleting `backend/instance/chroma/` and
+  re-processing: the vector index refuses a collection built with another model.
+- The opt-in real-model test: `$env:RUN_MODEL_TESTS='1'` then
+  `.venv\Scripts\python -m unittest discover -s backend	ests -p test_indexing_model_integration.py`.
+
 The last command starts the API at `http://127.0.0.1:8000`, with interactive docs at
 `/docs`. The background worker starts and stops with it. Run **one process only**: no
 `--workers`. Each process would get its own in-memory queue and worker thread.
-Uploaded files go to `backend/instance/uploads/<document_id>/` (git-ignored). F5 adds
-the UI start command here.
+Uploaded files go to `backend/instance/uploads/<document_id>/` (git-ignored). On startup,
+documents still `processing` from a crashed or killed run are marked `failed`
+(`internal_failure`, "interrupted by server restart") and their vectors removed;
+re-upload them to process again. An embedding or indexing error fails the document with
+`indexing_failure`. F5 adds the UI start command here.
 
 **API (F1).** Every error uses the canonical body `{code, message, details}` (plus
 `field` or `file_name` when relevant). Status codes: `unknown_kb`, `validation_failed`

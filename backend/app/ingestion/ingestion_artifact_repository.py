@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, timezone
 from itertools import islice
 
+from ingestion.ingestion_status_constants import INGESTION_STATUS_SUCCESS
 from ingestion.ingestion_status_repository import DEFAULT_DATABASE_PATH
 
 INSERT_BATCH_SIZE = 500
@@ -141,6 +142,26 @@ class SQLiteArtifactRepository(object):
         try:
             rows = connection.execute(query + " ORDER BY chunker, chunk_index", params).fetchall()
             return [dict(row) for row in rows]
+        finally:
+            connection.close()
+
+    def list_kb_chunks(self, kb_id, chunker):
+        """Return [(chunk_id, text)] for one KB and chunker, from documents in success only.
+
+        This is the keyword index's corpus (F2): a document becomes searchable
+        once the worker has marked it success, never while it is processing.
+        Ordered by document insertion, then chunk index, so results are stable.
+        """
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT c.chunk_id, c.text FROM document_chunks AS c "
+                "JOIN ingestion_documents AS d ON d.document_id = c.document_id "
+                "WHERE c.kb_id = ? AND c.chunker = ? AND d.ingestion_status = ? "
+                "ORDER BY d.rowid, c.chunk_index",
+                (kb_id, chunker, INGESTION_STATUS_SUCCESS),
+            ).fetchall()
+            return [(row["chunk_id"], row["text"]) for row in rows]
         finally:
             connection.close()
 
