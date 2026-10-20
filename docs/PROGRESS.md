@@ -112,10 +112,10 @@ unless marked "(Claude, small call)".
 | Date | Decision | Choice | Alternatives ruled out (why) | Owner |
 |---|---|---|---|---|
 | 2026-10-20 | Paths in API responses | `temp_file_path` is stripped from every API response. It stays in the service-layer result for the worker. A test checks that no response contains it or the local upload path. | Return it unchanged (it leaks an absolute local path) | Ethan |
-| 2026-10-20 | Re-enqueue on startup | Documents still `queued` in SQLite are re-enqueued when the app starts, oldest first. A queued row with no stored file is skipped with a warning. | No re-enqueue (why: not recorded) | Ethan |
-| 2026-10-20 | `POST /documents` status code | 202 with per-file results whenever the request itself is valid, even if every file was rejected. Request-level errors (unknown KB, batch limit, body over the cap) return the canonical error. | Return the shared code's status (for example 413) when no file is accepted, which drops the per-file list (why: not recorded) | Ethan |
-| 2026-10-20 | Upload size enforcement | ASGI middleware caps the whole request body while it streams in (413 when over `max_files_per_batch × max_size + 1 MB`), plus a per-file chunked copy that stops at the limit and deletes the partial file | Own streaming multipart parser with python-multipart for a true per-file streaming limit (why: not recorded) | Ethan |
-| 2026-10-20 | F1 dependencies | `fastapi==0.142.2`, `uvicorn==0.54.0`, `python-multipart==0.0.32`, `httpx==0.28.1` (TestClient), `ruff==0.17.1`. Verified in a scratch venv; `.venv` left alone. | Also uninstall the `[standard]` extras from `.venv` (why: not recorded) | Ethan |
+| 2026-10-20 | Re-enqueue on startup | Documents still `queued` in SQLite are re-enqueued when the app starts, oldest first. A queued row with no stored file is skipped with a warning. | No re-enqueue (any restart, including `--reload` during the demo, would leave documents stuck in `queued` forever; re-enqueue is cheap to add and testable) | Ethan |
+| 2026-10-20 | `POST /documents` status code | 202 with per-file results whenever the request itself is valid, even if every file was rejected. Request-level errors (unknown KB, batch limit, body over the cap) return the canonical error. | Return the shared code's status (for example 413) when no file is accepted (loses the per-file list). 202 because processing is asynchronous, so 202 Accepted is the correct HTTP semantics, and one response shape (per-file results) keeps the client simple. | Ethan |
+| 2026-10-20 | Upload size enforcement | ASGI middleware caps the whole request body while it streams in (413 when over `max_files_per_batch × max_size + 1 MB`), plus a per-file chunked copy that stops at the limit and deletes the partial file | Own streaming multipart parser with python-multipart for a true per-file streaming limit (Starlette buffers multipart bodies before the endpoint runs, so this means hand-parsing multipart: about 100 lines plus a broken `/docs` upload form. The middleware caps the whole request, and the chunked copy keeps oversize files out of `uploads/`.) | Ethan |
+| 2026-10-20 | F1 dependencies | `fastapi==0.142.2`, `uvicorn==0.54.0`, `python-multipart==0.0.32`, `httpx==0.28.1` (TestClient), `ruff==0.17.1`. Verified in a scratch venv; `.venv` left alone. | Also uninstall the `[standard]` extras from `.venv` (the clean scratch venv already proves requirements.txt is sufficient; uninstalling from a working venv adds risk and proves nothing more) | Ethan |
 | 2026-10-20 | Ruff line length | 120. E402 is ignored in `backend/tests/*` because of the required `sys.path` insert. | 88 (default): 203 long-line hits to rewrap (Claude, small call) | Ethan |
 | 2026-10-20 | Not-found error code | New canonical code `not_found` for unknown documents and unknown routes | | Ethan (Claude, small call) |
 | 2026-10-20 | Stored file name | Metadata `original_filename` is the sanitized base name. The client's directory parts are dropped. | | Ethan (Claude, small call) |
@@ -209,9 +209,6 @@ For Ethan:
    corpus, not code.
 8. Please confirm the AI-written code list below. The pre-2026-10-20 entries are
    inferred from commit messages and the 2026-10-14 decisions.
-9. The decision log has "Not recorded" reasons for four of your F1 choices: re-enqueue,
-   the 202 status, size enforcement and leaving `.venv` alone. Please give the reasons
-   you'd defend.
 
 ## Evaluation numbers
 
