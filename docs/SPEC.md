@@ -68,7 +68,7 @@ is added.
 |---|---|
 | F1 | `fastapi`, `uvicorn`, `python-multipart` (replace `fastapi[standard]`), `httpx` (TestClient), `ruff` |
 | F2 | `sentence-transformers==6.1.0`, `torch==2.14.1`, `chromadb==1.5.9`, `rank-bm25==0.2.2` (Chroma also pulls in `uvicorn[standard]`, opentelemetry, kubernetes and grpcio) |
-| F4 | `google-genai` |
+| F4 | `google-genai==2.28.0` (2.31.0 was less than two weeks old on 2026-10-20) |
 | F5 | `streamlit` (needs 1.37 or later for `st.fragment(run_every=...)`) |
 
 **How to run** (Windows PowerShell, repo root):
@@ -106,10 +106,19 @@ documents still `processing` from a crashed or killed run are marked `failed`
 re-upload them to process again. An embedding or indexing error fails the document with
 `indexing_failure`. F5 adds the UI start command here.
 
+**LLM (F4).** `.env` sets `LLM_PROVIDER` (`gemini`), `GEMINI_MODEL` (default
+`gemini-3.8-flash`), `GEMINI_API_KEY` and `LLM_MAX_RETRIES` (default 3; 429 and 503 are retried
+after 2, 4, 8 s plus jitter). The Gemini client is created on the first `/ask`, so the app
+starts without a key. KB display names and descriptions live in the committed
+`config/kb_descriptions.json` (`KB_DESCRIPTIONS_PATH` overrides it). A configured KB without an
+entry stops the app at startup. The grounding prompt is in `backend/app/agent/agent_answer.py`;
+Ethan approved it on 2026-10-20, so changing it needs his approval.
+
 **API (F1).** Every error uses the canonical body `{code, message, details}` (plus
 `field` or `file_name` when relevant). Status codes: `unknown_kb`, `validation_failed`
 and `batch_limit_exceeded` → 400; `not_found` → 404; `file_too_large` → 413;
-`internal_failure` → 500.
+`internal_failure` → 500; `not_implemented` → 501; `llm_unavailable` → 503 with
+`Retry-After: 30` (F4).
 
 | Endpoint | Returns |
 |---|---|
@@ -117,8 +126,9 @@ and `batch_limit_exceeded` → 400; `not_found` → 404; `file_too_large` → 41
 | `GET /documents?kb_id=` | `{documents: [...]}`, newest first, without history |
 | `GET /documents/status?document_id=a&document_id=b` | Batch status: counts, progress, `missing_document_ids` |
 | `GET /documents/{id}` | Status, timestamps, `failure_code`, `failure_reason` and history |
-| `GET /kbs` | `{kbs: [{kb_id, counts: {queued, processing, success, failed}, total}]}` in config order |
+| `GET /kbs` | `{kbs: [{kb_id, name, description, counts: {queued, processing, success, failed}, total}]}` in config order. `name` and `description` come from `config/kb_descriptions.json` (F4). |
 | `POST /search` (JSON: `query`, optional `kb_ids` (default: every configured KB), `top_k` 1-100 (default `RETRIEVAL_TOP_K`, 20), `top_n` 1-100 (default 10), `chunker` (default the baseline)) | Debug retrieval evidence, no LLM (F3): `{query, kb_ids, chunker, top_k, top_n, results: {kb_id: {vector: [...], keyword: [...]}}, merged, merge_error}`. A hit is `{chunk_id, rank, score, source, text, document_id, original_filename, page_start, page_end, kb_id}`, from `success` documents only. `merged` is `merge_ranked_lists` over every KB's two lists. If the merge raises, `merged` is null and `merge_error` holds the canonical error (`not_implemented` until RRF exists), still with 200 and the raw lists. |
+| `POST /ask` (JSON: `question`, 1-2000 chars) | F4: `route()` → retrieval for the routed KBs (`RETRIEVAL_TOP_K` per list) → `merge_ranked_lists` (top 10) → grounded answer. `{question, answer, no_answer, off_topic, sources: [{number, chunk_id, document_id, document, page_start, page_end, kb_id, snippet, cited}], kb_ids, route_reason, routing_fallback, usage: {input_tokens, output_tokens, calls: [{step, model, input_tokens, output_tokens}]}}`. Off-topic (no KB routed): an answer listing the KB descriptions, no retrieval and no answer call. No hits: the no-answer sentence without an answer call. 501 `not_implemented` until `route()` exists; 503 `llm_unavailable` when the LLM stays rate-limited or unavailable after the retries; 500 if `route()` breaks its contract or the LLM call fails otherwise. |
 
 **Data layout.**
 - `data/corpus/<kb_id>/`: public documents, downloaded by hand. Git-ignored.

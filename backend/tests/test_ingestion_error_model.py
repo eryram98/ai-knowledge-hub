@@ -18,6 +18,7 @@ from ingestion.ingestion_error_model import (
     ERROR_UNKNOWN_KB,
     ERROR_INDEXING_FAILURE,
     ERROR_NOT_IMPLEMENTED,
+    ERROR_LLM_UNAVAILABLE,
     is_valid_error_code,
     get_error_message,
     build_ingestion_error,
@@ -46,6 +47,13 @@ class TestIngestionErrorModel(unittest.TestCase):
         self.assertEqual(ERROR_NOT_IMPLEMENTED, "not_implemented")
         self.assertTrue(is_valid_error_code(ERROR_NOT_IMPLEMENTED))
         self.assertEqual(build_ingestion_error(ERROR_NOT_IMPLEMENTED)["code"], "not_implemented")
+
+    def test_llm_unavailable_is_canonical(self):
+        self.assertEqual(ERROR_LLM_UNAVAILABLE, "llm_unavailable")
+        self.assertTrue(is_valid_error_code(ERROR_LLM_UNAVAILABLE))
+        message = build_ingestion_error(ERROR_LLM_UNAVAILABLE)["message"]
+        self.assertIn("busy", message)
+        self.assertIn("try again", message)
 
     def test_get_error_message_known(self):
         message = get_error_message(ERROR_EXTRACTION_FAILURE)

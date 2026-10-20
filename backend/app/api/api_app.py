@@ -12,6 +12,10 @@ The worker embeds and indexes each document (F2). The embedder, the Chroma
 vector index, the BM25 keyword index, the indexer and the retriever live on
 app.state. POST /search (F3) returns the raw vector and keyword lists per KB
 and the merged list.
+
+POST /ask (F4) routes the question (agent_router.route), retrieves from the
+routed KBs, merges with RRF and answers from the merged chunks with the LLM
+(Gemini by default, created lazily so the app starts without a key).
 """
 
 import logging
@@ -24,7 +28,11 @@ from fastapi import FastAPI, File, Form, Query, UploadFile
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from api.api_errors import ApiError, install_error_handlers
+from agent import agent_router
+from agent.agent_answer import answer_question, off_topic_answer
+from agent.agent_config import AgentConfig, kb_descriptions, load_kb_infos
+from agent.agent_llm import LlmError, LlmUnavailableError, UsageRecorder, build_llm
+from api.api_errors import LLM_RETRY_AFTER_SECONDS, ApiError, install_error_handlers
 from api.api_uploads import (
     RequestSizeLimitMiddleware,
     max_request_bytes,
@@ -41,6 +49,7 @@ from ingestion.ingestion_artifact_repository import SQLiteArtifactRepository
 from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_error_model import (
     ERROR_INTERNAL_FAILURE,
+    ERROR_LLM_UNAVAILABLE,
     ERROR_NOT_FOUND,
     ERROR_NOT_IMPLEMENTED,
     ERROR_VALIDATION_FAILED,
@@ -76,6 +85,11 @@ PRIVATE_FILE_FIELDS = ("temp_file_path",)
 MAX_SEARCH_TOP_K = 100
 MAX_SEARCH_TOP_N = 100
 
+# Merged chunks the answer step sees in POST /ask.
+ASK_TOP_N = retrieval_merge.DEFAULT_TOP_N
+# A route() result may name at most this many KBs (its contract).
+MAX_ROUTED_KBS = 2
+
 
 class SearchRequest(BaseModel):
     query: str = Field(..., max_length=2000)
@@ -85,18 +99,32 @@ class SearchRequest(BaseModel):
     chunker: str = BASELINE_CHUNKER
 
 
+class AskRequest(BaseModel):
+    question: str = Field(..., max_length=2000)
+
+
 def create_app(config=None, status_repository=None, artifact_repository=None, upload_dir=None,
                worker_join_timeout=DEFAULT_WORKER_JOIN_TIMEOUT_SECONDS, embedder=None, vector_index=None,
-               keyword_index=None, retrieval_config=None):
+               keyword_index=None, retrieval_config=None, llm=None, agent_config=None, kb_infos=None):
     """Build the API. Every argument is injectable so tests can use a temp DB, upload dir and indexes.
 
     The artifact repository defaults to the status repository's database file,
     and the Chroma directory to chroma/ beside that file
     (backend/instance/chroma/ for the dev DB). The embedder defaults to
     bge-small, which loads on the first document or search, not at startup.
+    The LLM defaults to the LLM_PROVIDER provider (no call until the first
+    /ask), and kb_infos to the KB descriptions file; a configured KB without
+    a description is a ValueError.
     """
     config = config if config is not None else IngestionConfig()
     retrieval_config = retrieval_config if retrieval_config is not None else RetrievalConfig()
+    agent_config = agent_config if agent_config is not None else AgentConfig()
+    kb_infos = (
+        kb_infos if kb_infos is not None
+        else load_kb_infos(agent_config.kb_descriptions_path, config.allowed_kb_ids)
+    )
+    llm = llm if llm is not None else build_llm(agent_config)
+    kb_names = {kb_id: info.name for kb_id, info in kb_infos.items()}
     status_repository = (
         status_repository if status_repository is not None else SQLiteIngestionStatusRepository()
     )
@@ -160,6 +188,9 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
     app.state.indexer = indexer
     app.state.retrieval_config = retrieval_config
     app.state.retriever = retriever
+    app.state.agent_config = agent_config
+    app.state.kb_infos = kb_infos
+    app.state.llm = llm
     app.state.upload_dir = upload_root
     app.state.job_queue = job_queue
     app.state.worker_thread = None
@@ -243,13 +274,17 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
 
     @app.get("/kbs")
     def list_kbs():
-        """Configured KBs in config order, with document counts for every lifecycle state."""
+        """Configured KBs in config order: name, description and document counts for every lifecycle state."""
         counts = status_repository.count_documents_by_kb_and_status()
         kbs = []
         for configured_kb_id in config.allowed_kb_ids:
             kb_counts = counts.get(configured_kb_id, {})
             by_status = {status: kb_counts.get(status, 0) for status in INGESTION_STATUSES}
-            kbs.append({"kb_id": configured_kb_id, "counts": by_status, "total": sum(by_status.values())})
+            info = kb_infos[configured_kb_id]
+            kbs.append({
+                "kb_id": configured_kb_id, "name": info.name, "description": info.description,
+                "counts": by_status, "total": sum(by_status.values()),
+            })
         return {"kbs": kbs}
 
     @app.post("/search")
@@ -301,7 +336,83 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
             "results": results, "merged": merged, "merge_error": merge_error,
         }
 
+    @app.post("/ask")
+    def ask(request: AskRequest):
+        """Route the question, retrieve from the routed KBs, merge, and answer from the merged chunks only.
+
+        An off-topic question (no KB routed) gets a reply listing what the KBs
+        cover, with no retrieval and no answer call. 501 not_implemented until
+        route() exists; 503 llm_unavailable when the LLM stays rate-limited.
+        Token usage covers every LLM call of the request.
+        """
+        question = request.question.strip()
+        if not question:
+            raise ApiError(build_ingestion_error(ERROR_VALIDATION_FAILED, details="question must not be blank",
+                                                 field="question"))
+        recorder = UsageRecorder(llm)
+        try:
+            recorder.step = "route"
+            try:
+                routing = agent_router.route(question, kb_descriptions(kb_infos), recorder)
+            except NotImplementedError:
+                raise ApiError(build_ingestion_error(
+                    ERROR_NOT_IMPLEMENTED, details="route() (query routing) is not implemented yet"))
+            kb_ids, reason, fallback = _checked_routing(routing, config.allowed_kb_ids)
+            if kb_ids:
+                results = retriever.retrieve_many(kb_ids, question)
+                ranked_lists = []
+                for kb_id in kb_ids:
+                    ranked_lists.append(results[kb_id][SOURCE_VECTOR])
+                    ranked_lists.append(results[kb_id][SOURCE_KEYWORD])
+                merged = retrieval_merge.merge_ranked_lists(ranked_lists, top_n=ASK_TOP_N)
+                recorder.step = "answer"
+                answer = answer_question(question, merged, recorder, kb_names)
+            else:
+                answer = {"answer": off_topic_answer(kb_infos), "no_answer": True, "sources": []}
+        except LlmUnavailableError as exc:
+            LOGGER.warning("LLM unavailable during /ask (%s step): %s", recorder.step, exc)
+            raise ApiError(build_ingestion_error(ERROR_LLM_UNAVAILABLE, details=str(exc)),
+                           headers={"Retry-After": str(LLM_RETRY_AFTER_SECONDS)})
+        except LlmError as exc:
+            LOGGER.error("LLM call failed during /ask (%s step): %s", recorder.step, exc)
+            raise ApiError(build_ingestion_error(ERROR_INTERNAL_FAILURE, details="The language model call failed"))
+        return {
+            "question": question,
+            "answer": answer["answer"],
+            "no_answer": answer["no_answer"],
+            "off_topic": not kb_ids and not fallback,
+            "sources": answer["sources"],
+            "kb_ids": kb_ids,
+            "route_reason": reason,
+            "routing_fallback": fallback,
+            "usage": recorder.usage(),
+        }
+
     return app
+
+
+def _checked_routing(routing, configured_kb_ids):
+    """(kb_ids, reason, fallback) from a route() result; a result that breaks its contract is a logged 500."""
+    problem = None
+    if not isinstance(routing, dict):
+        problem = "not a dict"
+    else:
+        kb_ids, reason, fallback = routing.get("kb_ids"), routing.get("reason"), routing.get("fallback")
+        if not isinstance(kb_ids, list) or not all(isinstance(kb_id, str) for kb_id in kb_ids):
+            problem = "kb_ids is not a list of strings"
+        elif len(kb_ids) > MAX_ROUTED_KBS or len(set(kb_ids)) != len(kb_ids):
+            problem = "kb_ids has more than {0} entries or duplicates".format(MAX_ROUTED_KBS)
+        elif any(kb_id not in configured_kb_ids for kb_id in kb_ids):
+            problem = "kb_ids names a KB that is not configured"
+        elif not isinstance(reason, str):
+            problem = "reason is not a string"
+        elif not isinstance(fallback, bool):
+            problem = "fallback is not a bool"
+    if problem is not None:
+        LOGGER.error("route() broke its contract (%s): %r", problem, routing)
+        raise ApiError(build_ingestion_error(ERROR_INTERNAL_FAILURE,
+                                             details="route() returned an invalid result: " + problem))
+    return list(kb_ids), reason, fallback
 
 
 def _public_upload_response(response):

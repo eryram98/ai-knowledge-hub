@@ -1,0 +1,10 @@
+{
+  "it_policies": {
+    "name": "IT policies",
+    "description": "public university IT policies and procedures"
+  },
+  "hw_datasheets": {
+    "name": "hardware datasheets",
+    "description": "public hardware datasheets (pinouts, electrical characteristics, dimensions)"
+  }
+}

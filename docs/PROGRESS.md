@@ -4,42 +4,46 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 ## Now
 
-- **Branch stack (unmerged, oldest first):** `feat/text-extraction` → `chore/claude-code-setup`
-  → `feat/kb-id` → `feat/pipeline-baseline` → `ethan/project-setup` → `ethan/f1-api`
-  → `ethan/f2-indexing` → `ethan/f3-retrieval`. Base new branches on `ethan/f3-retrieval`
-  until the stack merges into `main`.
-- **Current feature:** none. F3 is done on `ethan/f3-retrieval`, including Ethan's RRF merge.
+- **Branches:** the old stack (F0-F3) is merged into `main` (PRs #4 and #5, `c48a584`). New
+  branches base on `main`. `ethan/f4-ask` is local-only (not pushed).
+- **Current feature:** F4 `/ask` on `ethan/f4-ask`. The plumbing is done and committed. `/ask`
+  returns 501 `not_implemented` until Ethan writes `route()` (coach mode).
 - **Next concrete steps:**
-  1. Ethan: make `merge_ranked_lists` reject a non-integer `top_n` (2.5, "3", True) instead
-     of truncating it with `int()`, so `test_top_n_must_be_an_integer` passes, then commit
-     "fix(retrieval): validate merge arguments, restore docstring" (the rest is uncommitted
-     in the working tree).
-  2. F4 (`/ask`, router interface + tests by Claude, routing by Ethan) on `ethan/f4-ask`.
-- **Ethan by hand:**
-  - Try `POST /search` at `http://127.0.0.1:8000/docs`: `merged` is now filled and
-    `merge_error` is null.
+  1. Ethan: implement `route()` in `backend/app/agent/agent_router.py` against its docstring.
+     Change `routing_reply()` at the top of `test_agent_router.py` to match your reply format,
+     then remove the 8 `@unittest.expectedFailure` decorators. All 8 must pass.
+  2. Ethan: try `/ask` by hand (below). Then F4 is done, and F5 (Streamlit) and F6 (seed, eval
+     set, demo script) follow.
+- **Ethan by hand (after `route()` exists):**
+  - Start the API (SPEC section 2) with `HF_HUB_OFFLINE=1`, open `http://127.0.0.1:8000/docs`,
+    and `POST /ask` with "What are the board dimensions of the Pico?". Expect `kb_ids:
+    ["hw_datasheets"]`, an answer with "51 × 21 mm" and [n] citations, and `usage.calls` with a
+    `route` and an `answer` step.
+  - Ask "Who won the 1998 World Cup?". Expect `off_topic: true`, the message listing what the
+    KBs cover (descriptions, no KB IDs), and only one call in `usage.calls`.
+  - `GET /kbs` now shows `name` and `description`.
   - Your `.env` comment on line 11 still points at the deleted `docs/decisions.md`.
-  - Add public documents for `it_policies` (none yet) and more datasheets, each listed in
-    `data/corpus/MANIFEST.md`. The Pico datasheet is in `hw_datasheets/` now.
-  - Optional: set `HF_HUB_OFFLINE=1` in your shell now that bge-small is cached.
+  - `it_policies` still has no documents. Add public ones and list them in
+    `data/corpus/MANIFEST.md`.
 
 ## Countdown and risk (as of 2026-10-20)
 
 - **7 days to the progress demo (2026-10-27). 49 days to the final demo (2026-12-08).**
 - At risk:
-  1. F1-F3 are done. F4-F6 remain in 7 days. If a day is lost, cut F6's eval script down
-     to routing accuracy only, not the demo itself.
-  2. `/ask` (F4) depends on Ethan's router (coach mode). The RRF merge is done, and
-     `/search` demos the raw and merged retrieval evidence.
-  3. The F2 install is 1.3 GB and took about 6.5 minutes; bge-small is a 128 MB
-     download. Install and cache both on the demo laptop well before the demo, then use
-     `HF_HUB_OFFLINE=1`.
-  4. The corpus has one document (Pico datasheet in `hw_datasheets`); `it_policies` is
-     empty. F6 needs both KBs.
-  5. Baseline retrieval on the datasheet is weak for some questions (manual run below):
-     fixed 1000-character chunks split tables and sections. Expected, and it is the Table
-     Challenge motivation, but pick demo questions carefully.
-  6. Gemini free-tier quotas during rehearsal and the demo (see the SPEC fallbacks).
+  1. `/ask` depends on Ethan's `route()`. Everything around it is done and tested. F5 and F6
+     remain. If a day is lost, cut F6's eval script down to routing accuracy only.
+  2. The corpus has one document (Pico datasheet in `hw_datasheets`); `it_policies` is
+     empty. Routing and the demo need both KBs.
+  3. Gemini free-tier quotas during rehearsal and the demo. Every `/ask` makes 2 LLM calls
+     (route + answer), so the F6 eval run of 8 questions is about 16 calls. A 429 is retried
+     3 times (about 15 s), then `/ask` returns 503.
+  4. Gemini latency: the first manual answer took 39.5 s (thinking model), the second 8.8 s.
+     The client timeout is 60 s. Measure again on the demo laptop.
+  5. The F2 install is 1.3 GB and bge-small is a 128 MB download. Install and cache both on the
+     demo laptop well before the demo, then use `HF_HUB_OFFLINE=1`.
+  6. Baseline retrieval on the datasheet is weak for some questions (fixed 1000-character
+     chunks split tables). Expected (Table Challenge motivation), but pick demo questions
+     carefully.
 
 ## Features
 
@@ -49,7 +53,7 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 | F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Done | `ethan/f1-api` | `1693e82`, `f077c3c`, `4e7eae5` (chores), `1aeffe8`, `c1df404` |
 | F2 | Indexing: bge-small, Chroma and BM25 per KB | Done | `ethan/f2-indexing` | `a922552` |
 | F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Done | `ethan/f3-retrieval` | `2b0566e`, this commit (RRF) |
-| F4 | `/ask`: routing (Ethan, coach), grounded Gemini answer, sources | To do | | |
+| F4 | `/ask`: routing (Ethan, coach), grounded Gemini answer, sources | Plumbing done; `route()` by Ethan to do | `ethan/f4-ask` | this commit |
 | F5 | Streamlit UI: Documents and Ask pages | To do (Erynn likely) | | |
 | F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | To do | | |
 | F7 | Re-ranking (coach) | After Oct 27 | | |
@@ -89,6 +93,39 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 | 8.11 manual retry hooks | Deferred, not scheduled |
 
 ## Session log
+
+- **2026-10-20 · Ethan + Claude · `ethan/f4-ask` · F4 plumbing.**
+  - Branched from `main` (`c48a584`, the merged stack). Checks at the start: 265 tests OK,
+    3 skipped; Ruff clean.
+  - Added `google-genai==2.28.0`. Ethan approved 2.31.0 with a fallback to the newest
+    release at least two weeks old; 2.31.0 was 6 days old, so 2.28.0 (2026-10-02).
+  - New `backend/app/agent/` package:
+    - LLM provider interface, `UsageRecorder` and `build_llm`.
+    - `GeminiLlm`: lazy client, temperature 0, AFC off, its own retries on 429/503 and network
+      errors, `LlmUnavailableError`, usage including thinking tokens.
+    - `AgentConfig` and the KB descriptions file `config/kb_descriptions.json` (name +
+      description per KB).
+    - The grounded answer step with Ethan's approved prompt (KB display names in the source
+      headers).
+    - The `route()` interface only (coach mode).
+  - `POST /ask`, plus `name` and `description` in `GET /kbs`. New canonical code
+    `llm_unavailable` (503 + `Retry-After: 30`), and `not_implemented` maps to 501.
+  - Tests: 330 run, OK, 3 skipped (opt-in model tests), 8 expected failures (the router
+    tests), in `.venv` and in a scratch venv built only from requirements.txt (`pip check`
+    clean). Ruff clean. The Chroma flake (Known issues) hit 2 of 32 looped runs of the API tests. New: `test_agent_llm.py`, `test_agent_gemini.py`,
+    `test_agent_config.py`, `test_agent_answer.py`, `test_agent_router.py`, `test_api_ask.py`,
+    and one error-model test.
+  - Manual runs:
+    - `models.list()` (no generation) confirmed the model names; default `gemini-3.8-flash`.
+    - Answer step with real dev-DB retrieval (bge-small, `hw_datasheets`, RRF top 10) and real
+      Gemini, 2 calls:
+      - "What are the board dimensions of the Pico?" → "51 × 21 mm and is 1 mm thick
+        [1][3][9]" (pages 7, 6-7, 4), 39.5 s.
+      - "What is the warranty period for the Pico?" → exactly the no-answer sentence,
+        `no_answer: true`, 8.8 s.
+      - Total 6,547 input and 555 output tokens.
+    - Real uvicorn: `/kbs` shows names and descriptions; `/ask` → 501 `not_implemented`
+      "route() (query routing) is not implemented yet".
 
 - **2026-10-20 · Ethan + Claude · `ethan/f3-retrieval` · merge argument checks (not committed).**
   - Ethan restored the `merge_ranked_lists` docstring and added ValueError checks for `k`
@@ -191,6 +228,14 @@ unless marked "(Claude, small call)".
 
 | Date | Decision | Choice | Alternatives ruled out (why) | Owner |
 |---|---|---|---|---|
+| 2026-10-20 | Grounding prompt (F4) | Ethan approved the system instruction and user-message layout in `agent_answer.py`, with two changes: the off-topic reply lists only the KB descriptions (no KB IDs), and source headers show a KB display name ("IT policies", "hardware datasheets") instead of the `kb_id`. The API response keeps `kb_id`. | | Ethan |
+| 2026-10-20 | KB descriptions location | Committed `config/kb_descriptions.json` with `name` and `description` per KB (`KB_DESCRIPTIONS_PATH` overrides it). A configured KB without an entry stops the app at startup. | `.env` variables (git-ignored, so every machine copies them by hand, and routing quality depends on them) | Ethan |
+| 2026-10-20 | Router reply format in tests | The router tests build every scripted LLM reply through one `routing_reply()` helper (JSON to start), which Ethan changes to match his format. The `route()` docstring doesn't fix a format. | A JSON reply format in the contract (takes the choice away from Ethan) | Ethan |
+| 2026-10-20 | F4 dependency | `google-genai==2.28.0` under "# LLM (F4)". 2.31.0 was approved with a fallback to the newest release at least two weeks old; 2.31.0 (2026-10-14) was 6 days old. | | Ethan |
+| 2026-10-20 | Default Gemini model | `gemini-3.8-flash`, the newest stable Flash in the key's `models.list()` on 2026-10-20, as a code default overridable by `GEMINI_MODEL` | `gemini-flash-latest` (an alias that moves without notice, so runs aren't reproducible) (Claude, small call) | Ethan |
+| 2026-10-20 | What the Gemini provider retries | 429, 503 and network errors (httpx transport errors), up to `LLM_MAX_RETRIES` (3) with 2/4/8 s backoff plus up to 1 s jitter, then `LlmUnavailableError`. Other API errors fail at once as `LlmError` (→ 500). The SDK's own retries stay off (its default). | 429 only (Gemini's "model overloaded" is a 503, and retrying it is just as harmless) (Claude, small call) | Ethan |
+| 2026-10-20 | `/ask` error mapping | `route()` NotImplementedError → 501 `not_implemented`; `LlmUnavailableError` at any step → 503 `llm_unavailable` with `Retry-After: 30`; other `LlmError` → 500 without provider details; a `route()` result that breaks its contract (not a dict, unknown or duplicate KB, more than 2, wrong types) → logged 500 | Trust `route()`'s output (a bug in it would surface as a confusing KeyError or a search of an unknown KB) (Claude, small call) | Ethan |
+| 2026-10-20 | `/ask` answer details | Merged top 10 into the prompt; no hits → the no-answer sentence without an LLM call; `no_answer` only when the reply is the no-answer sentence alone; every prompted chunk is returned as a numbered source with `cited` (its [n] appears in the answer) and a 300-character snippet; usage counts thinking tokens as output and covers the route and answer calls through a `UsageRecorder` wrapper | Return only cited sources (hides what the model saw) (Claude, small call) | Ethan |
 | 2026-10-20 | Merge argument checks | `merge_ranked_lists` raises ValueError for `k <= 0` or a non-numeric `k`, and for a `top_n` that isn't a positive integer (floats, numeric strings and bools included), even on empty input | Trust the callers (`/search` validates `top_n`, but F4's `/ask` calls the function directly) | Ethan |
 | 2026-10-20 | Repeated chunk within one ranked list (review item 3) | No check: the Retriever returns each chunk at most once per list, and the docstring states it as a precondition. A repeat would be counted twice. | Count a repeated chunk once (defends against a caller bug that can't happen today) | Ethan |
 | 2026-10-20 | Copying hit fields into the fused hit (review item 4) | Keep the deny-list (every field except `rank`, `score`, `source` is copied). The test's exact field set catches a new field leaking through. | Allow-list of the documented fields (immune to new hit fields, but has to be updated when the contract grows) | Ethan |
@@ -266,12 +311,18 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
   - Once it happens, an immediate retry fails too.
   - It never reproduced in standalone Chroma scripts (fresh or reset ephemeral client,
     fresh persistent client, 3,800 queries).
+  - F4: 2 failures in 32 looped runs of the API test files (7 of `test_api_ask.py` alone, 25 of
+    all `test_api_*.py`), both in `/ask` tests. They query more KBs per test, so the flake
+    shows up more often.
   - Not seen on the real server. If it does show up there, `/search` returns a canonical
     500 `internal_failure`.
   - If the suite fails with this error, re-run it. If it gets more frequent or shows up on
     the dev DB, consider a chromadb upgrade (a dependency change, so ask first).
 - `merge_ranked_lists` accepts a NaN or infinite `k` (NaN makes every score NaN; infinity
   makes every score 0). Not reachable from `/search`, which doesn't expose `k`.
+- `/ask` makes 2 LLM calls (route + answer). The first real answer took 39.5 s, the second 8.8 s
+  (236 and 319 output tokens including thinking; the split wasn't logged). No thinking budget
+  is set. Decide in F6 if latency hurts the demo.
 - *(Fixed in F3)* Vector hits could include documents not in `success`. `/search` and the
   Retriever now filter them out.
 - The API keeps one Chroma PersistentClient open for its lifetime and never calls
@@ -320,8 +371,11 @@ For Erynn:
 4. Will you build the F5 Streamlit UI? F1's API contract is in SPEC.md section 2 and at
    `/docs`. *Recommendation:* review the endpoints and the F1 changes to your modules
    (listed in the F1 session summary) before F5.
-5. The stack of four unmerged branches is growing. *Recommendation:* review and merge
-   it into `main` soon, oldest first, so new work bases on `main` again.
+5. F4 changed two shared things: `GET /kbs` entries gained `name` and `description`, and the
+   error model gained `llm_unavailable` (503). `/ask`'s response shape is in SPEC section 2
+   for the F5 Ask page. *Recommendation:* show `answer`, the `cited` sources first, the
+   routed KB names, a "routing fell back to all KBs" note when `routing_fallback` is true, and a
+   "busy, try again" state for 503.
 
 For Ethan:
 6. The old CLAUDE.md listed MCP as a consumer of the knowledge layer, but no feature
@@ -345,6 +399,7 @@ coach-mode code is never on this list.
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-20 | `backend/app/agent/agent_llm.py`, `agent_gemini.py`, `agent_config.py`, `agent_answer.py`, `agent_router.py` (the interface and docstring only; the body will be Ethan's); `config/kb_descriptions.json`; `POST /ask`, `AskRequest`, `_checked_routing`, the `/kbs` name and description, and the agent wiring in `api_app.py`; `Retry-After` support and the 501/503 mappings in `api_errors.py`; `llm_unavailable` in the error model; tests `agent_fakes.py`, `test_agent_llm.py`, `test_agent_gemini.py`, `test_agent_config.py`, `test_agent_answer.py`, `test_agent_router.py`, `test_api_ask.py`, plus one test in `test_ingestion_error_model.py`; the requirements.txt LLM group; `.env.example` | Claude Code | Ethan (to review) | F4 plumbing |
 | 2026-10-20 | `test_retrieval_merge.py`: `TestMergeArgumentValidation`, decorator cleanup, module docstring. Not on this list: the argument checks in `merge_ranked_lists`, which Ethan wrote | Claude Code | Ethan (to review) | F3 RRF follow-up |
 | 2026-10-20 | `test_api_search.py`: split the merge test into a real-merge test and a patched not-implemented test, with shared helpers | Claude Code | Ethan (to review) | F3 RRF. Not on this list: the `merge_ranked_lists` body, which Ethan wrote (coach mode) |
 | 2026-10-20 | `backend/app/retrieval/retrieval_config.py`, `retrieval_retriever.py`, `retrieval_merge.py` (the interface only: signature, constants and the original docstring; the `merge_ranked_lists` body is Ethan's, not AI-written); `POST /search`, `SearchRequest` and retriever wiring in `api_app.py`; `document_ids` filter in `ChromaVectorIndex.query`; `list_success_document_ids` and `get_chunk_hits` in the artifact repository; `not_implemented` in the error model; tests `test_retrieval_retriever.py`, `test_retrieval_config.py`, `test_retrieval_merge.py`, `test_api_search.py`, plus additions to `test_indexing_vector_index.py` and `test_ingestion_error_model.py` | Claude Code | Ethan (to review) | F3 |
