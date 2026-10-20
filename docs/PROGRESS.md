@@ -10,8 +10,10 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
   until the stack merges into `main`.
 - **Current feature:** none. F3 is done on `ethan/f3-retrieval`, including Ethan's RRF merge.
 - **Next concrete steps:**
-  1. Ethan: restore the `merge_ranked_lists` docstring (the contract) above his body, and
-     decide on the merge edge cases in the 2026-10-20 RRF session log.
+  1. Ethan: make `merge_ranked_lists` reject a non-integer `top_n` (2.5, "3", True) instead
+     of truncating it with `int()`, so `test_top_n_must_be_an_integer` passes, then commit
+     "fix(retrieval): validate merge arguments, restore docstring" (the rest is uncommitted
+     in the working tree).
   2. F4 (`/ask`, router interface + tests by Claude, routing by Ethan) on `ethan/f4-ask`.
 - **Ethan by hand:**
   - Try `POST /search` at `http://127.0.0.1:8000/docs`: `merged` is now filled and
@@ -88,6 +90,14 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 ## Session log
 
+- **2026-10-20 · Ethan + Claude · `ethan/f3-retrieval` · merge argument checks (not committed).**
+  - Ethan restored the `merge_ranked_lists` docstring and added ValueError checks for `k`
+    and `top_n`. He decided to keep review items 3 and 4 as they are (decision log).
+  - Claude added `TestMergeArgumentValidation` (3 tests), deleted the 8 commented-out
+    decorators and updated the module docstring of `test_retrieval_merge.py`.
+  - Tests: 265 run, 3 failures (the subtests of `test_top_n_must_be_an_integer`: `int()`
+    truncates 2.5 to 2, converts "3" to 3 and True to 1, instead of raising). Ruff clean.
+    Not committed: the commit waits for Ethan's fix.
 - **2026-10-20 · Ethan + Claude · `ethan/f3-retrieval` · F3 RRF merge.**
   - Ethan implemented `merge_ranked_lists` (coach mode) and commented out the 8
     `@unittest.expectedFailure` decorators. All 8 merge tests pass.
@@ -181,6 +191,9 @@ unless marked "(Claude, small call)".
 
 | Date | Decision | Choice | Alternatives ruled out (why) | Owner |
 |---|---|---|---|---|
+| 2026-10-20 | Merge argument checks | `merge_ranked_lists` raises ValueError for `k <= 0` or a non-numeric `k`, and for a `top_n` that isn't a positive integer (floats, numeric strings and bools included), even on empty input | Trust the callers (`/search` validates `top_n`, but F4's `/ask` calls the function directly) | Ethan |
+| 2026-10-20 | Repeated chunk within one ranked list (review item 3) | No check: the Retriever returns each chunk at most once per list, and the docstring states it as a precondition. A repeat would be counted twice. | Count a repeated chunk once (defends against a caller bug that can't happen today) | Ethan |
+| 2026-10-20 | Copying hit fields into the fused hit (review item 4) | Keep the deny-list (every field except `rank`, `score`, `source` is copied). The test's exact field set catches a new field leaking through. | Allow-list of the documented fields (immune to new hit fields, but has to be updated when the contract grows) | Ethan |
 | 2026-10-20 | Success filter for vector hits | Chroma `where document_id $in <success IDs from SQLite>`, plus a final SQLite lookup that drops any hit whose chunk is gone or whose document isn't `success`; ranks are reassigned 1..n | Fetch top_k and drop non-success hits afterwards (leftover vectors of a failed document would take top_k slots) (Claude, small call) | Ethan |
 | 2026-10-20 | Merge contract | `merge_ranked_lists(ranked_lists, k=60, top_n=10)`. Output hits carry `fused_score` and `sources: [{source, kb_id, rank, score}]` in input-list order. Sorted by `fused_score` descending, ties broken by `chunk_id` ascending | Tie-break on best single rank (also valid; Ethan can still change it with the tests) (Claude, small call, approved in the F3 plan) | Ethan |
 | 2026-10-20 | `/search` when the merge fails | 200 with the raw lists, `merged: null` and `merge_error` (new canonical code `not_implemented`; any other exception → `internal_failure`, logged) | 501 or 500 for the whole request (would hide the retrieval evidence the endpoint exists to show) (Claude, small call, approved in the F3 plan) | Ethan |
@@ -257,11 +270,8 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
     500 `internal_failure`.
   - If the suite fails with this error, re-run it. If it gets more frequent or shows up on
     the dev DB, consider a chromadb upgrade (a dependency change, so ask first).
-- `merge_ranked_lists` has no docstring since the RRF body landed, and
-  `test_retrieval_merge.py` still has its 8 decorators commented out plus a module docstring
-  saying the function raises NotImplementedError. Both are Ethan's to tidy.
-- `merge_ranked_lists` doesn't validate `top_n` or `k` (see the RRF session log). `/search`
-  validates `top_n`; F4's `/ask` must too.
+- `merge_ranked_lists` accepts a NaN or infinite `k` (NaN makes every score NaN; infinity
+  makes every score 0). Not reachable from `/search`, which doesn't expose `k`.
 - *(Fixed in F3)* Vector hits could include documents not in `success`. `/search` and the
   Retriever now filter them out.
 - The API keeps one Chroma PersistentClient open for its lifetime and never calls
@@ -335,6 +345,7 @@ coach-mode code is never on this list.
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-20 | `test_retrieval_merge.py`: `TestMergeArgumentValidation`, decorator cleanup, module docstring. Not on this list: the argument checks in `merge_ranked_lists`, which Ethan wrote | Claude Code | Ethan (to review) | F3 RRF follow-up |
 | 2026-10-20 | `test_api_search.py`: split the merge test into a real-merge test and a patched not-implemented test, with shared helpers | Claude Code | Ethan (to review) | F3 RRF. Not on this list: the `merge_ranked_lists` body, which Ethan wrote (coach mode) |
 | 2026-10-20 | `backend/app/retrieval/retrieval_config.py`, `retrieval_retriever.py`, `retrieval_merge.py` (the interface only: signature, constants and the original docstring; the `merge_ranked_lists` body is Ethan's, not AI-written); `POST /search`, `SearchRequest` and retriever wiring in `api_app.py`; `document_ids` filter in `ChromaVectorIndex.query`; `list_success_document_ids` and `get_chunk_hits` in the artifact repository; `not_implemented` in the error model; tests `test_retrieval_retriever.py`, `test_retrieval_config.py`, `test_retrieval_merge.py`, `test_api_search.py`, plus additions to `test_indexing_vector_index.py` and `test_ingestion_error_model.py` | Claude Code | Ethan (to review) | F3 |
 | 2026-10-20 | `backend/app/indexing/` (all four modules); indexing step in `ingestion_pipeline.py`; `list_kb_chunks` in the artifact repository; `on_finished` in `ingestion_worker.py`; `indexing_failure` in the error model; F2 wiring and `_fail_interrupted_documents` in `api_app.py`; tests `indexing_fakes.py` and six `test_indexing_*.py` files, plus F2 additions to `test_api_documents.py`, `test_ingestion_worker.py`, `test_ingestion_pipeline_e2e.py` and `test_ingestion_error_model.py`; the requirements.txt indexing group | Claude Code | Ethan (to review) | F2 |
