@@ -20,8 +20,9 @@ except ImportError:
 
 # Default values (can be overridden via environment variables)
 DEFAULT_ALLOWED_EXTENSIONS = (".pdf", ".txt", ".md")
-# Placeholder KB IDs until KB topics are decided (see docs/decisions.md)
-DEFAULT_ALLOWED_KB_IDS = ("kb_placeholder_a", "kb_placeholder_b")
+# KB IDs for the demo topics (docs/SPEC.md, section 2). Topics pending PM
+# confirmation, so they stay config-driven through INGESTION_ALLOWED_KB_IDS.
+DEFAULT_ALLOWED_KB_IDS = ("it_policies", "hw_datasheets")
 DEFAULT_MAX_FILE_SIZE_MB = 25
 DEFAULT_MAX_FILES_PER_BATCH = 20
 DEFAULT_DUPLICATE_POLICY = "allow"  # allow | block_exact | version

@@ -18,8 +18,8 @@ class TestAllowedKbIdsConfig(unittest.TestCase):
         with patch.dict(os.environ, {"INGESTION_ALLOWED_KB_IDS": raw_value}):
             return IngestionConfig()
 
-    def test_defaults_are_two_placeholders(self):
-        self.assertEqual(DEFAULT_ALLOWED_KB_IDS, ("kb_placeholder_a", "kb_placeholder_b"))
+    def test_defaults_are_the_two_demo_kbs(self):
+        self.assertEqual(DEFAULT_ALLOWED_KB_IDS, ("it_policies", "hw_datasheets"))
         with patch.dict(os.environ):
             os.environ.pop("INGESTION_ALLOWED_KB_IDS", None)
             self.assertEqual(IngestionConfig().allowed_kb_ids, DEFAULT_ALLOWED_KB_IDS)
