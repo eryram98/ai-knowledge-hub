@@ -6,14 +6,18 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 - **Branch stack (unmerged, oldest first):** `feat/text-extraction` → `chore/claude-code-setup`
   → `feat/kb-id` → `feat/pipeline-baseline` → `ethan/project-setup` → `ethan/f1-api`
-  → `ethan/f2-indexing`. Base new branches on `ethan/f2-indexing` until the stack merges
-  into `main`.
-- **Current feature:** none. F2 (indexing) is done on `ethan/f2-indexing`.
-- **Next concrete step:** F3 (retrieval plumbing) on `ethan/f3-retrieval`. Claude builds
-  the per-KB vector and keyword ranked lists with chunk text and source metadata, filters
-  hits to `success` documents (see Known issues), and writes the merge interface and its
-  tests. Ethan implements RRF (coach mode): think about the design before that session.
+  → `ethan/f2-indexing` → `ethan/f3-retrieval`. Base new branches on `ethan/f3-retrieval`
+  until the stack merges into `main`.
+- **Current feature:** none. F3's plumbing is done on `ethan/f3-retrieval`. The RRF merge is
+  waiting for Ethan (coach mode).
+- **Next concrete steps:**
+  1. Ethan implements `merge_ranked_lists` in `backend/app/retrieval/retrieval_merge.py`
+     until the 8 tests in `test_retrieval_merge.py` pass, then removes their
+     `@unittest.expectedFailure` decorators. A passing expected failure counts as an
+     "unexpected success" and fails the suite.
+  2. F4 (`/ask`, router interface + tests by Claude, routing by Ethan) on `ethan/f4-ask`.
 - **Ethan by hand:**
+  - Try `POST /search` at `http://127.0.0.1:8000/docs` (see the 2026-10-20 F3 session log).
   - Your `.env` comment on line 11 still points at the deleted `docs/decisions.md`.
   - Add public documents for `it_policies` (none yet) and more datasheets, each listed in
     `data/corpus/MANIFEST.md`. The Pico datasheet is in `hw_datasheets/` now.
@@ -23,10 +27,10 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 - **7 days to the progress demo (2026-10-27). 49 days to the final demo (2026-12-08).**
 - At risk:
-  1. F1 and F2 are done. F3-F6 remain in 7 days. If a day is lost, cut F6's eval script
-     down to routing accuracy only, not the demo itself.
-  2. F3 and F4 depend on Ethan's coach-mode code (the RRF merge and the router). The
-     `/ask` endpoint can't be demoed until both exist.
+  1. F1, F2 and F3's plumbing are done. The RRF merge and F4-F6 remain in 7 days. If a day
+     is lost, cut F6's eval script down to routing accuracy only, not the demo itself.
+  2. `/ask` (F4) depends on Ethan's coach-mode code: the RRF merge (now unblocked, with
+     tests waiting) and the router. `/search` already demos the raw retrieval evidence.
   3. The F2 install is 1.3 GB and took about 6.5 minutes; bge-small is a 128 MB
      download. Install and cache both on the demo laptop well before the demo, then use
      `HF_HUB_OFFLINE=1`.
@@ -43,8 +47,8 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 |---|---|---|---|---|
 | F0 | Project setup: AGENTS.md, SPEC.md, PROGRESS.md | Done | `ethan/project-setup` | `f8be5c7` |
 | F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Done | `ethan/f1-api` | `1693e82`, `f077c3c`, `4e7eae5` (chores), `1aeffe8`, `c1df404` |
-| F2 | Indexing: bge-small, Chroma and BM25 per KB | Done | `ethan/f2-indexing` | this commit |
-| F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Next | | |
+| F2 | Indexing: bge-small, Chroma and BM25 per KB | Done | `ethan/f2-indexing` | `a922552` |
+| F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Plumbing done; RRF waiting for Ethan | `ethan/f3-retrieval` | this commit |
 | F4 | `/ask`: routing (Ethan, coach), grounded Gemini answer, sources | To do | | |
 | F5 | Streamlit UI: Documents and Ask pages | To do (Erynn likely) | | |
 | F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | To do | | |
@@ -86,6 +90,28 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 ## Session log
 
+- **2026-10-20 · Ethan + Claude · `ethan/f3-retrieval` · F3.**
+  - New `backend/app/retrieval/` package:
+    - `RetrievalConfig` (`RETRIEVAL_TOP_K`, default 20).
+    - `Retriever`: two separate ranked lists per KB, with text and source metadata from
+      SQLite, `success` documents only, and `embed_query` called once per request.
+    - `merge_ranked_lists`: the interface only (docstring + `NotImplementedError`).
+  - Vector hits are filtered to `success` documents inside Chroma (`document_id $in`), which
+    closes the F2 known issue. `POST /search` returns the raw lists plus the merged list or
+    `merge_error: not_implemented`.
+  - Tests: 261 run, OK, 3 skipped (opt-in model tests), 8 expected failures (the RRF tests).
+    Ruff clean.
+  - The merge tests were checked against a throwaway reference RRF in the scratchpad (all 8
+    pass with it), and that file was deleted. Nothing of it is in the repo.
+  - Manual run (real uvicorn, dev DB, real bge-small, `HF_HUB_OFFLINE=1`) with `/search` on
+    `hw_datasheets`, top_k 5:
+    - "input voltage range": vector p20-22 + p8-9, keyword p22, p8-9, p21-24 (power
+      section, relevant).
+    - "board dimensions": "Mechanical specification" p7 is vector #3 and keyword #2.
+    - "flash memory": still weak (as in F2).
+    - Every call returned `merge_error.code = not_implemented` with 200. Omitting `kb_ids`
+      searched both KBs, and an unknown KB returned `unknown_kb` 400.
+    - The first query took 9.5 s (model load), later ones 35-39 ms.
 - **2026-10-20 · Ethan + Claude · `ethan/f2-indexing` · F2.**
   - Repo moved out of OneDrive (decision logged); no paths needed changing.
   - Dependencies verified in a scratch venv first: install 394 s, venv 1,334 MB (torch
@@ -137,6 +163,11 @@ unless marked "(Claude, small call)".
 
 | Date | Decision | Choice | Alternatives ruled out (why) | Owner |
 |---|---|---|---|---|
+| 2026-10-20 | Success filter for vector hits | Chroma `where document_id $in <success IDs from SQLite>`, plus a final SQLite lookup that drops any hit whose chunk is gone or whose document isn't `success`; ranks are reassigned 1..n | Fetch top_k and drop non-success hits afterwards (leftover vectors of a failed document would take top_k slots) (Claude, small call) | Ethan |
+| 2026-10-20 | Merge contract | `merge_ranked_lists(ranked_lists, k=60, top_n=10)`. Output hits carry `fused_score` and `sources: [{source, kb_id, rank, score}]` in input-list order. Sorted by `fused_score` descending, ties broken by `chunk_id` ascending | Tie-break on best single rank (also valid; Ethan can still change it with the tests) (Claude, small call, approved in the F3 plan) | Ethan |
+| 2026-10-20 | `/search` when the merge fails | 200 with the raw lists, `merged: null` and `merge_error` (new canonical code `not_implemented`; any other exception → `internal_failure`, logged) | 501 or 500 for the whole request (would hide the retrieval evidence the endpoint exists to show) (Claude, small call, approved in the F3 plan) | Ethan |
+| 2026-10-20 | `/search` defaults | `kb_ids` omitted → every configured KB (an empty list → 400); `top_k` 1-100, default `RETRIEVAL_TOP_K`; `top_n` 1-100, default 10; `chunker` defaults to the baseline; KB IDs normalized and de-duplicated | (Claude, small call) | Ethan |
+| 2026-10-20 | Retrieval config location | New `RetrievalConfig` in `retrieval/retrieval_config.py` | A field on Erynn's `IngestionConfig` (retrieval isn't ingestion, and her module stays untouched) (Claude, small call) | Ethan |
 | 2026-10-20 | F2 dependencies | `sentence-transformers==6.1.0`, `torch==2.14.1`, `chromadb==1.5.9`, `rank-bm25==0.2.2` under "# Indexing". Accepted side effect: Chroma pulls back `uvicorn[standard]`, opentelemetry, kubernetes and grpcio. Linux needs the CPU torch index (SPEC section 2). | | Ethan |
 | 2026-10-20 | F2 index layout | Collection `kb_<kb_id>`, cosine, `embedding_function=None`; IDs are our chunk_id; chunk text only in SQLite; each collection records `embedding_model` and a mismatch is refused; model name and query prefix are code constants; interrupted documents use `internal_failure`; F2 exposes raw `query -> [(chunk_id, score)]`, and F3 owns ranked lists, text, metadata, the merge interface and endpoints | | Ethan |
 | 2026-10-20 | BM25 corpus | Chunks of documents in `success` only (`list_kb_chunks` joins the status table). The worker's `on_finished` hook invalidates the KB's BM25, so a finished document is searchable on the next query. | Index chunks as soon as they are persisted (a processing or later-failed document would show up in keyword results) (Claude, small call) | Ethan |
@@ -195,9 +226,21 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
 
 ## Known issues
 
-- **For F3:** Chroma receives a document's vectors just before its `success` status, and
-  a failed re-process removes them only best-effort. F3 must filter vector hits to
-  documents in `success`. BM25 already covers `success` documents only.
+- **Rare, unexplained Chroma error in tests:** `chromadb.errors.InternalError: Error
+  executing plan: Internal error: Error finding id` from `collection.query`.
+  - Seen once in 11 full-suite runs, and about 5 times in ~1,000 looped runs of the
+    `/search` API tests (in-memory Chroma shared between tests).
+  - It also happens with the F3 `$in` filter patched out, so it's in the F2 query path,
+    not caused by F3.
+  - Once it happens, an immediate retry fails too.
+  - It never reproduced in standalone Chroma scripts (fresh or reset ephemeral client,
+    fresh persistent client, 3,800 queries).
+  - Not seen on the real server. If it does show up there, `/search` returns a canonical
+    500 `internal_failure`.
+  - If the suite fails with this error, re-run it. If it gets more frequent or shows up on
+    the dev DB, consider a chromadb upgrade (a dependency change, so ask first).
+- *(Fixed in F3)* Vector hits could include documents not in `success`. `/search` and the
+  Retriever now filter them out.
 - The API keeps one Chroma PersistentClient open for its lifetime and never calls
   `close()`. Fine for one process, but on Windows the Chroma directory can't be deleted
   while the server runs.
@@ -269,6 +312,7 @@ coach-mode code is never on this list.
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-20 | `backend/app/retrieval/retrieval_config.py`, `retrieval_retriever.py`, `retrieval_merge.py` (interface and docstring only; Ethan writes the body); `POST /search`, `SearchRequest` and retriever wiring in `api_app.py`; `document_ids` filter in `ChromaVectorIndex.query`; `list_success_document_ids` and `get_chunk_hits` in the artifact repository; `not_implemented` in the error model; tests `test_retrieval_retriever.py`, `test_retrieval_config.py`, `test_retrieval_merge.py`, `test_api_search.py`, plus additions to `test_indexing_vector_index.py` and `test_ingestion_error_model.py` | Claude Code | Ethan (to review) | F3 |
 | 2026-10-20 | `backend/app/indexing/` (all four modules); indexing step in `ingestion_pipeline.py`; `list_kb_chunks` in the artifact repository; `on_finished` in `ingestion_worker.py`; `indexing_failure` in the error model; F2 wiring and `_fail_interrupted_documents` in `api_app.py`; tests `indexing_fakes.py` and six `test_indexing_*.py` files, plus F2 additions to `test_api_documents.py`, `test_ingestion_worker.py`, `test_ingestion_pipeline_e2e.py` and `test_ingestion_error_model.py`; the requirements.txt indexing group | Claude Code | Ethan (to review) | F2 |
 | 2026-10-20 | `backend/app/api/api_app.py`, `api_errors.py`, `api_uploads.py`; tests `test_api_documents.py`, `test_api_uploads.py`, `test_ingestion_inventory.py`; `list_documents` and `count_documents_by_kb_and_status` in the status repository; `list_documents` and `_status_from_record` in the status service; `document_id`, `new_document_id` and `resolve_kb_id` in the upload service; `not_found` in the error model; `ruff.toml`; Ruff fixes in 4 test files and `ingestion_status_constants.py`; KB defaults; requirements.txt | Claude Code | Ethan (to review) | F1 |
 | 2026-10-20 | `AGENTS.md`, `CLAUDE.md`, `docs/SPEC.md`, `docs/PROGRESS.md`, `.claude/skills/decide/SKILL.md`, `.claude/skills/finish-feature/SKILL.md`, `.gitignore` additions, `data/corpus/MANIFEST.md` | Claude Code | Ethan | Docs and config only |

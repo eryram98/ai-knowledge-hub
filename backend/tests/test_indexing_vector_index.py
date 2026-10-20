@@ -84,6 +84,25 @@ class TestChromaVectorIndex(unittest.TestCase):
         self.assertEqual(self.index.query(KB_A, FakeEmbedder.vector("x"), "unknown-chunker", 5), [])
         self.assertEqual(self.index.query(KB_A, FakeEmbedder.vector("x"), BASE, 0), [])
 
+    def test_query_document_filter_keeps_top_k_filled(self):
+        # doc-bad matches the query exactly; restricted to doc-good, its slots go to doc-good's chunks.
+        self.add(KB_A, "doc-bad", BASE, ["gpio17 uart pin", "pin uart gpio17"])
+        self.add(KB_A, "doc-good", BASE, ["gpio17 pin header", "uart pin", "power supply"])
+        vector = FakeEmbedder.vector("gpio17 uart pin")
+        unfiltered = self.index.query(KB_A, vector, BASE, top_k=2)
+        self.assertTrue(all(chunk_id.startswith("doc-bad:") for chunk_id, _score in unfiltered))
+        hits = self.index.query(KB_A, vector, BASE, top_k=2, document_ids=["doc-good"])
+        self.assertEqual(len(hits), 2)
+        self.assertTrue(all(chunk_id.startswith("doc-good:") for chunk_id, _score in hits))
+        both = self.index.query(KB_A, vector, BASE, top_k=5, document_ids=["doc-good", "doc-bad"])
+        self.assertEqual(len(both), 5)
+        self.assertEqual(self.index.query(KB_A, vector, OTHER, top_k=5, document_ids=["doc-good"]), [])
+
+    def test_query_with_no_documents_returns_nothing(self):
+        self.add(KB_A, "doc-1", BASE, ["gpio17"])
+        self.assertEqual(self.index.query(KB_A, FakeEmbedder.vector("gpio17"), BASE, 5, document_ids=[]), [])
+        self.assertEqual(self.index.query(KB_A, FakeEmbedder.vector("gpio17"), BASE, 5, document_ids=["nope"]), [])
+
     def test_kbs_are_isolated(self):
         self.add(KB_A, "doc-1", BASE, ["gpio17"])
         self.assertEqual(self.index.query(KB_B, FakeEmbedder.vector("gpio17"), BASE, 5), [])

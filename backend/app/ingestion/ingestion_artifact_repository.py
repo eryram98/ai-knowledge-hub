@@ -10,6 +10,8 @@ from ingestion.ingestion_status_constants import INGESTION_STATUS_SUCCESS
 from ingestion.ingestion_status_repository import DEFAULT_DATABASE_PATH
 
 INSERT_BATCH_SIZE = 500
+# Chunk IDs per IN (...) lookup, well under SQLite's bound-parameter limit.
+LOOKUP_BATCH_SIZE = 500
 
 
 class SQLiteArtifactRepository(object):
@@ -162,6 +164,49 @@ class SQLiteArtifactRepository(object):
                 (kb_id, chunker, INGESTION_STATUS_SUCCESS),
             ).fetchall()
             return [(row["chunk_id"], row["text"]) for row in rows]
+        finally:
+            connection.close()
+
+    def list_success_document_ids(self, kb_id):
+        """Return the IDs of the KB's documents in success, oldest first (F3's vector filter)."""
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT document_id FROM ingestion_documents WHERE kb_id = ? AND ingestion_status = ? "
+                "ORDER BY rowid",
+                (kb_id, INGESTION_STATUS_SUCCESS),
+            ).fetchall()
+            return [row["document_id"] for row in rows]
+        finally:
+            connection.close()
+
+    def get_chunk_hits(self, chunk_ids):
+        """Return {chunk_id: chunk fields + source metadata} for chunks of documents in success.
+
+        Fields: chunk_id, text, document_id, kb_id, page_start, page_end,
+        original_filename. Unknown chunk IDs and chunks of documents not in
+        success are left out, so a search hit can't cite a processing or failed
+        document.
+        """
+        chunk_ids = list(dict.fromkeys(chunk_ids))
+        hits = {}
+        if not chunk_ids:
+            return hits
+        connection = self._connect()
+        try:
+            for start in range(0, len(chunk_ids), LOOKUP_BATCH_SIZE):
+                batch = chunk_ids[start:start + LOOKUP_BATCH_SIZE]
+                rows = connection.execute(
+                    "SELECT c.chunk_id, c.text, c.document_id, c.kb_id, c.page_start, c.page_end, "
+                    "json_extract(d.metadata_json, '$.original_filename') AS original_filename "
+                    "FROM document_chunks AS c "
+                    "JOIN ingestion_documents AS d ON d.document_id = c.document_id "
+                    "WHERE d.ingestion_status = ? AND c.chunk_id IN ({0})".format(", ".join("?" * len(batch))),
+                    [INGESTION_STATUS_SUCCESS] + batch,
+                ).fetchall()
+                for row in rows:
+                    hits[row["chunk_id"]] = dict(row)
+            return hits
         finally:
             connection.close()
 

@@ -9,8 +9,9 @@ processing by a previous run are marked failed (their vectors removed), and
 documents still queued in SQLite are enqueued again.
 
 The worker embeds and indexes each document (F2). The embedder, the Chroma
-vector index, the BM25 keyword index and the indexer live on app.state for
-retrieval (F3).
+vector index, the BM25 keyword index, the indexer and the retriever live on
+app.state. POST /search (F3) returns the raw vector and keyword lists per KB
+and the merged list.
 """
 
 import logging
@@ -20,6 +21,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, Query, UploadFile
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.api_errors import ApiError, install_error_handlers
@@ -40,6 +42,7 @@ from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_error_model import (
     ERROR_INTERNAL_FAILURE,
     ERROR_NOT_FOUND,
+    ERROR_NOT_IMPLEMENTED,
     ERROR_VALIDATION_FAILED,
     build_ingestion_error,
 )
@@ -54,6 +57,9 @@ from ingestion.ingestion_status_repository import DEFAULT_DATABASE_PATH, SQLiteI
 from ingestion.ingestion_status_service import IngestionStatusService
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_worker import start_background_worker
+from retrieval import retrieval_merge
+from retrieval.retrieval_config import RetrievalConfig
+from retrieval.retrieval_retriever import BASELINE_CHUNKER, SOURCE_KEYWORD, SOURCE_VECTOR, Retriever
 
 LOGGER = logging.getLogger(__name__)
 
@@ -66,18 +72,31 @@ INTERRUPTED_REASON = "interrupted by server restart"
 # it is an absolute local path.
 PRIVATE_FILE_FIELDS = ("temp_file_path",)
 
+# Bounds for POST /search, so a debug call can't ask for the whole KB.
+MAX_SEARCH_TOP_K = 100
+MAX_SEARCH_TOP_N = 100
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(..., max_length=2000)
+    kb_ids: Optional[List[str]] = Field(None, description="KBs to search; omitted means every configured KB")
+    top_k: Optional[int] = Field(None, ge=1, le=MAX_SEARCH_TOP_K, description="Hits per ranked list")
+    top_n: int = Field(retrieval_merge.DEFAULT_TOP_N, ge=1, le=MAX_SEARCH_TOP_N, description="Merged hits")
+    chunker: str = BASELINE_CHUNKER
+
 
 def create_app(config=None, status_repository=None, artifact_repository=None, upload_dir=None,
                worker_join_timeout=DEFAULT_WORKER_JOIN_TIMEOUT_SECONDS, embedder=None, vector_index=None,
-               keyword_index=None):
+               keyword_index=None, retrieval_config=None):
     """Build the API. Every argument is injectable so tests can use a temp DB, upload dir and indexes.
 
     The artifact repository defaults to the status repository's database file,
     and the Chroma directory to chroma/ beside that file
     (backend/instance/chroma/ for the dev DB). The embedder defaults to
-    bge-small, which loads on the first document, not at startup.
+    bge-small, which loads on the first document or search, not at startup.
     """
     config = config if config is not None else IngestionConfig()
+    retrieval_config = retrieval_config if retrieval_config is not None else RetrievalConfig()
     status_repository = (
         status_repository if status_repository is not None else SQLiteIngestionStatusRepository()
     )
@@ -92,6 +111,7 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
     )
     keyword_index = keyword_index if keyword_index is not None else BM25KeywordIndex(artifact_repository)
     indexer = DocumentIndexer(embedder, vector_index, keyword_index)
+    retriever = Retriever(embedder, vector_index, keyword_index, artifact_repository, top_k=retrieval_config.top_k)
     upload_root = os.path.abspath(upload_dir if upload_dir is not None else DEFAULT_UPLOAD_DIR)
     os.makedirs(upload_root, exist_ok=True)
 
@@ -138,6 +158,8 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
     app.state.vector_index = vector_index
     app.state.keyword_index = keyword_index
     app.state.indexer = indexer
+    app.state.retrieval_config = retrieval_config
+    app.state.retriever = retriever
     app.state.upload_dir = upload_root
     app.state.job_queue = job_queue
     app.state.worker_thread = None
@@ -229,6 +251,55 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
             by_status = {status: kb_counts.get(status, 0) for status in INGESTION_STATUSES}
             kbs.append({"kb_id": configured_kb_id, "counts": by_status, "total": sum(by_status.values())})
         return {"kbs": kbs}
+
+    @app.post("/search")
+    def search(request: SearchRequest):
+        """Retrieval evidence for a query: per KB, the raw vector and keyword lists, plus the merged list.
+
+        A debug endpoint (no LLM). The merged list comes from
+        merge_ranked_lists over every KB's two lists; if the merge fails or is
+        not implemented yet, "merged" is null, "merge_error" holds the
+        canonical error, and the raw lists are still returned.
+        """
+        query = request.query.strip()
+        if not query:
+            raise ApiError(build_ingestion_error(ERROR_VALIDATION_FAILED, details="query must not be blank",
+                                                 field="query"))
+        if request.kb_ids is None:
+            kb_ids = list(config.allowed_kb_ids)
+        elif not request.kb_ids:
+            raise ApiError(build_ingestion_error(ERROR_VALIDATION_FAILED, details="kb_ids must not be empty",
+                                                 field="kb_ids"))
+        else:
+            kb_ids = []
+            for raw_kb_id in request.kb_ids:
+                kb_id, kb_error = upload_service.resolve_kb_id(raw_kb_id)
+                if kb_error is not None:
+                    raise ApiError(dict(kb_error, field="kb_ids"))
+                if kb_id not in kb_ids:
+                    kb_ids.append(kb_id)
+        top_k = request.top_k if request.top_k is not None else retrieval_config.top_k
+
+        results = retriever.retrieve_many(kb_ids, query, chunker=request.chunker, top_k=top_k)
+        ranked_lists = []
+        for kb_id in kb_ids:
+            ranked_lists.append(results[kb_id][SOURCE_VECTOR])
+            ranked_lists.append(results[kb_id][SOURCE_KEYWORD])
+        merged, merge_error = None, None
+        try:
+            merged = retrieval_merge.merge_ranked_lists(ranked_lists, top_n=request.top_n)
+        except NotImplementedError:
+            merge_error = build_ingestion_error(
+                ERROR_NOT_IMPLEMENTED, details="merge_ranked_lists (RRF) is not implemented yet")
+        except Exception:
+            LOGGER.exception("merge_ranked_lists failed for /search")
+            merge_error = build_ingestion_error(ERROR_INTERNAL_FAILURE, details="merge_ranked_lists failed")
+        if merge_error is not None:
+            merge_error.setdefault("details", None)
+        return {
+            "query": query, "kb_ids": kb_ids, "chunker": request.chunker, "top_k": top_k, "top_n": request.top_n,
+            "results": results, "merged": merged, "merge_error": merge_error,
+        }
 
     return app
 

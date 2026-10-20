@@ -118,6 +118,7 @@ and `batch_limit_exceeded` → 400; `not_found` → 404; `file_too_large` → 41
 | `GET /documents/status?document_id=a&document_id=b` | Batch status: counts, progress, `missing_document_ids` |
 | `GET /documents/{id}` | Status, timestamps, `failure_code`, `failure_reason` and history |
 | `GET /kbs` | `{kbs: [{kb_id, counts: {queued, processing, success, failed}, total}]}` in config order |
+| `POST /search` (JSON: `query`, optional `kb_ids` (default: every configured KB), `top_k` 1-100 (default `RETRIEVAL_TOP_K`, 20), `top_n` 1-100 (default 10), `chunker` (default the baseline)) | Debug retrieval evidence, no LLM (F3): `{query, kb_ids, chunker, top_k, top_n, results: {kb_id: {vector: [...], keyword: [...]}}, merged, merge_error}`. A hit is `{chunk_id, rank, score, source, text, document_id, original_filename, page_start, page_end, kb_id}`, from `success` documents only. `merged` is `merge_ranked_lists` over every KB's two lists. If the merge raises, `merged` is null and `merge_error` holds the canonical error (`not_implemented` until RRF exists), still with 200 and the raw lists. |
 
 **Data layout.**
 - `data/corpus/<kb_id>/`: public documents, downloaded by hand. Git-ignored.
