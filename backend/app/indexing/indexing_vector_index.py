@@ -103,16 +103,29 @@ class ChromaVectorIndex(object):
         """Delete a document's entries (one chunker, or all when chunker is None)."""
         self._collection(kb_id).delete(where=self._where(document_id, chunker))
 
-    def query(self, kb_id, query_vector, chunker, top_k):
-        """Return up to top_k [(chunk_id, score)], best first; score is cosine similarity (1 - distance)."""
+    def query(self, kb_id, query_vector, chunker, top_k, document_ids=None):
+        """Return up to top_k [(chunk_id, score)], best first; score is cosine similarity (1 - distance).
+
+        document_ids, when given, limits the search to those documents inside
+        Chroma (F3 passes the KB's success documents), so leftover vectors of a
+        failed document can't take a top_k slot. An empty list returns [].
+        """
         if top_k <= 0:
             return []
+        if document_ids is not None:
+            document_ids = list(document_ids)
+            if not document_ids:
+                return []
         collection = self._collection(kb_id)
         if collection.count() == 0:
             return []
+        where = self._where(chunker=chunker)
+        if document_ids is not None:
+            document_filter = {"document_id": {"$in": document_ids}}
+            where = document_filter if where is None else {"$and": [where, document_filter]}
         result = collection.query(
             query_embeddings=[list(query_vector)], n_results=top_k,
-            where=self._where(chunker=chunker), include=["distances"],
+            where=where, include=["distances"],
         )
         return [(chunk_id, 1.0 - float(distance))
                 for chunk_id, distance in zip(result["ids"][0], result["distances"][0])]
