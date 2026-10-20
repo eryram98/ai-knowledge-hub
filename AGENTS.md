@@ -29,7 +29,7 @@ Nityanand are non-technical PMs.
 - Install dependencies: `.venv\Scripts\python -m pip install -r requirements.txt`
 - Checks (all must pass):
   - Tests: `.venv\Scripts\python -m unittest discover -s backend\tests`
-  - Lint (from F1 on, once Ruff is added): `.venv\Scripts\python -m ruff check backend`
+  - Lint (Ruff, rules E and F, config in `ruff.toml`): `.venv\Scripts\python -m ruff check backend`
   - Streamlit smoke test (from F5 on, once the UI exists): the app imports and
     starts headless. The exact command is recorded in SPEC.md when F5 lands.
 - PowerShell has no `<` redirection. Pass files as arguments.

@@ -52,7 +52,9 @@ class TestQueuedPersistence(unittest.TestCase):
     def test_storage_failure_rejects_file(self):
         repository = Mock()
         repository.create_queued.side_effect = sqlite3.OperationalError("storage unavailable")
-        response = IngestionUploadService(status_repository=repository).create_upload_request([self.file_input()], KB_ID)
+        response = IngestionUploadService(status_repository=repository).create_upload_request(
+            [self.file_input()], KB_ID,
+        )
         entry = response["files"][0]
         self.assertEqual(response["status"], "failed")
         self.assertEqual(entry["status"], "rejected")
@@ -67,7 +69,10 @@ class TestQueuedPersistence(unittest.TestCase):
 
     def test_history_failure_rolls_back_document(self):
         with closing(sqlite3.connect(self.path)) as connection, connection:
-            connection.execute("CREATE TRIGGER reject_history BEFORE INSERT ON ingestion_status_history BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+            connection.execute(
+                "CREATE TRIGGER reject_history BEFORE INSERT ON ingestion_status_history "
+                "BEGIN SELECT RAISE(ABORT, 'test failure'); END"
+            )
         entry = self.service.create_upload_request([self.file_input()], KB_ID)["files"][0]
         self.assertEqual(entry["status"], "rejected")
         with closing(sqlite3.connect(self.path)) as connection, connection:

@@ -11,18 +11,7 @@ if APP_DIR not in sys.path:
 
 from ingestion.ingestion_status_constants import (
     INGESTION_STATUS_QUEUED,
-    INGESTION_STATUS_PROCESSING,
-    INGESTION_STATUS_SUCCESS,
-    INGESTION_STATUS_FAILED,
     is_valid_ingestion_status,
-    can_transition_ingestion_status,
-)
-from ingestion.ingestion_config_manager import (
-    IngestionConfig,
-    DEFAULT_ALLOWED_EXTENSIONS,
-    DEFAULT_MAX_FILE_SIZE_MB,
-    DEFAULT_MAX_FILES_PER_BATCH,
-    DEFAULT_DUPLICATE_POLICY,
 )
 
 # ... existing code ...

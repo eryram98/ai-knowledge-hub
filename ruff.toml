@@ -1,0 +1,11 @@
+# Ruff lint config. Run: .venv\Scripts\python -m ruff check backend
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = ["E", "F"]
+
+[lint.per-file-ignores]
+# Test files put backend/app on sys.path before importing (AGENTS.md), so their
+# imports can't sit at the top of the module.
+"backend/tests/*" = ["E402"]

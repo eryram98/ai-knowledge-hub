@@ -57,7 +57,10 @@ class TestProcessingStatus(unittest.TestCase):
 
     def test_history_failure_rolls_back_processing(self):
         with closing(sqlite3.connect(self.path)) as connection, connection:
-            connection.execute("CREATE TRIGGER reject_processing BEFORE INSERT ON ingestion_status_history WHEN NEW.status = 'processing' BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+            connection.execute(
+                "CREATE TRIGGER reject_processing BEFORE INSERT ON ingestion_status_history "
+                "WHEN NEW.status = 'processing' BEGIN SELECT RAISE(ABORT, 'test failure'); END"
+            )
         with self.assertRaises(sqlite3.IntegrityError):
             self.repository.mark_processing(self.document_id)
         self.assertEqual(self.repository.get_document(self.document_id)["ingestion_status"], "queued")
