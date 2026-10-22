@@ -353,7 +353,8 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
         try:
             recorder.step = "route"
             try:
-                routing = agent_router.route(question, kb_descriptions(kb_infos), recorder)
+                routing = agent_router.route(question, kb_descriptions(kb_infos), recorder,
+                                             thinking=agent_config.router_thinking)
             except NotImplementedError:
                 raise ApiError(build_ingestion_error(
                     ERROR_NOT_IMPLEMENTED, details="route() (query routing) is not implemented yet"))
@@ -366,7 +367,8 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
                     ranked_lists.append(results[kb_id][SOURCE_KEYWORD])
                 merged = retrieval_merge.merge_ranked_lists(ranked_lists, top_n=ASK_TOP_N)
                 recorder.step = "answer"
-                answer = answer_question(question, merged, recorder, kb_names)
+                answer = answer_question(question, merged, recorder, kb_names,
+                                         thinking=agent_config.answer_thinking)
             else:
                 answer = {"answer": off_topic_answer(kb_infos), "no_answer": True, "sources": []}
         except LlmUnavailableError as exc:

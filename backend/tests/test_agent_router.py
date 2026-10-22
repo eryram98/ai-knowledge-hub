@@ -155,7 +155,7 @@ class TestRoutingReply(RouterTestCase):
 
 
 class TestRoutingPrompt(unittest.TestCase):
-    def test_one_call_with_the_question_the_instruction_and_low_thinking(self):
+    def test_one_call_with_the_question_the_instruction_and_minimal_thinking(self):
         llm = FakeLlm(routing_reply(["hw_datasheets"], "spec"))
         route(DATASHEET_QUESTION, KB_DESCRIPTIONS, llm)
         self.assertEqual(len(llm.calls), 1)
@@ -163,7 +163,14 @@ class TestRoutingPrompt(unittest.TestCase):
         self.assertEqual(prompt, "Question: " + DATASHEET_QUESTION)
         self.assertEqual(system_instruction, build_routing_instruction(KB_DESCRIPTIONS))
         self.assertEqual(llm.thinking_levels, [ROUTER_THINKING])
-        self.assertEqual(ROUTER_THINKING, "low")
+        self.assertEqual(ROUTER_THINKING, "minimal")
+
+    def test_thinking_level_is_forwarded(self):
+        for level in ("low", None):
+            with self.subTest(level=level):
+                llm = FakeLlm(routing_reply(["hw_datasheets"], "spec"))
+                route(DATASHEET_QUESTION, KB_DESCRIPTIONS, llm, thinking=level)
+                self.assertEqual(llm.thinking_levels, [level])
 
     def test_instruction_lists_every_configured_kb_from_the_descriptions(self):
         descriptions = dict(KB_DESCRIPTIONS, hr_handbook="public HR handbooks and leave rules")

@@ -14,6 +14,7 @@ from agent_fakes import KB_INFOS, FakeLlm
 
 from agent.agent_answer import (
     ANSWER_SYSTEM_INSTRUCTION,
+    ANSWER_THINKING,
     NO_ANSWER_SENTENCE,
     answer_question,
     build_answer_prompt,
@@ -102,6 +103,15 @@ class TestAnswerQuestion(unittest.TestCase):
                                       ANSWER_SYSTEM_INSTRUCTION)])
         self.assertEqual(result["answer"], "The board is 51 x 21 mm [1].")
         self.assertFalse(result["no_answer"])
+        self.assertEqual(llm.thinking_levels, [ANSWER_THINKING])
+        self.assertEqual(ANSWER_THINKING, "minimal")
+
+    def test_thinking_level_is_forwarded(self):
+        for level in ("high", None):
+            with self.subTest(level=level):
+                llm = FakeLlm("The board is 51 x 21 mm [1].")
+                answer_question("How big is the board?", HITS, llm, KB_NAMES, thinking=level)
+                self.assertEqual(llm.thinking_levels, [level])
 
     def test_sources_are_numbered_in_hit_order_with_cited_flags(self):
         result = answer_question("q", HITS, FakeLlm("Size [1]; voltage [2]."), KB_NAMES)

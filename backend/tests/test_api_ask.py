@@ -26,7 +26,7 @@ from test_agent_gemini import FakeClient, api_error
 from test_api_search import KB_IDS, SearchApiTestCase, make_config, make_retrieval_config
 
 from agent.agent_answer import ANSWER_SYSTEM_INSTRUCTION, NO_ANSWER_SENTENCE
-from agent.agent_config import KbInfo
+from agent.agent_config import AgentConfig, KbInfo
 from agent.agent_gemini import GeminiLlm
 from agent.agent_llm import LlmError, LlmUnavailableError
 from api.api_app import create_app
@@ -41,7 +41,7 @@ OFF_TOPIC_MESSAGE = (
 
 def scripted_router(kb_ids, reason="scripted", fallback=False, calls_llm=True, record=None):
     """A stand-in for route(): optionally makes one LLM call (so usage covers it), then returns the given result."""
-    def fake_route(question, kb_descriptions, llm):
+    def fake_route(question, kb_descriptions, llm, thinking=None):
         if record is not None:
             record.append((question, kb_descriptions))
         if calls_llm:
@@ -119,7 +119,7 @@ class TestAskAnswers(AskApiTestCase):
         self.assertNotIn("passwords", prompt)  # the policy KB wasn't routed
         self.assertTrue(prompt.endswith("Question: " + DATASHEET_QUESTION))
 
-    def test_real_router_routes_from_a_json_reply_with_low_thinking(self):
+    def test_real_router_routes_from_a_json_reply_with_minimal_thinking(self):
         self.llm.replies = ['{"kb_ids": ["hw_datasheets"], "reason": "A pinout question."}',
                             "GPIO17 doubles as a UART pin [1]."]
         with TestClient(self.app) as client:
@@ -132,7 +132,24 @@ class TestAskAnswers(AskApiTestCase):
         self.assertFalse(body["routing_fallback"])
         self.assertEqual(body["answer"], "GPIO17 doubles as a UART pin [1].")
         self.assertEqual([call["step"] for call in body["usage"]["calls"]], ["route", "answer"])
-        self.assertEqual(self.llm.thinking_levels, ["low", None])
+        self.assertEqual(self.llm.thinking_levels, ["minimal", "minimal"])
+
+    def test_thinking_levels_come_from_the_agent_config(self):
+        with patch.dict(os.environ, {"GEMINI_ROUTER_THINKING": "low", "GEMINI_ANSWER_THINKING": "high"}):
+            agent_config = AgentConfig()
+        self.app = create_app(
+            config=make_config(), status_repository=self.status_repository,
+            upload_dir=os.path.join(self.directory, "uploads"), embedder=self.embedder,
+            vector_index=self.app.state.vector_index, retrieval_config=make_retrieval_config(),
+            llm=self.llm, agent_config=agent_config, kb_infos=KB_INFOS,
+        )
+        self.llm.replies = ['{"kb_ids": ["hw_datasheets"], "reason": "A pinout question."}',
+                            "GPIO17 doubles as a UART pin [1]."]
+        with TestClient(self.app) as client:
+            self.ingest_both(client)
+            response = client.post("/ask", json={"question": DATASHEET_QUESTION})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.llm.thinking_levels, ["low", "high"])
 
     def test_off_topic_question_lists_what_the_kbs_cover_without_retrieval_or_answer_call(self):
         with TestClient(self.app) as client:
@@ -186,7 +203,7 @@ class TestAskAnswers(AskApiTestCase):
 class TestAskErrors(AskApiTestCase):
     def test_router_not_implemented_is_501_without_an_llm_call(self):
         # route() exists now, so a stand-in raises NotImplementedError to keep the 501 mapping covered.
-        def not_implemented(question, kb_descriptions, llm):
+        def not_implemented(question, kb_descriptions, llm, thinking=None):
             raise NotImplementedError("route() is not implemented yet")
         response = self.ask(not_implemented, ingest=False)
         body = self.assertCanonicalError(response, 501, "not_implemented")

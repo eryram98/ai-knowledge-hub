@@ -13,6 +13,7 @@ if APP_DIR not in sys.path:
 
 from agent.agent_config import (
     DEFAULT_GEMINI_MODEL,
+    DEFAULT_GEMINI_TIMEOUT_SECONDS,
     DEFAULT_KB_DESCRIPTIONS_PATH,
     DEFAULT_LLM_MAX_RETRIES,
     AgentConfig,
@@ -22,7 +23,8 @@ from agent.agent_config import (
 )
 
 KB_IDS = ("it_policies", "hw_datasheets")
-AGENT_ENV = ("LLM_PROVIDER", "GEMINI_MODEL", "GEMINI_API_KEY", "LLM_MAX_RETRIES", "KB_DESCRIPTIONS_PATH")
+AGENT_ENV = ("LLM_PROVIDER", "GEMINI_MODEL", "GEMINI_API_KEY", "LLM_MAX_RETRIES", "KB_DESCRIPTIONS_PATH",
+             "GEMINI_ROUTER_THINKING", "GEMINI_ANSWER_THINKING", "GEMINI_TIMEOUT_SECONDS")
 
 
 class TestAgentConfig(unittest.TestCase):
@@ -39,6 +41,30 @@ class TestAgentConfig(unittest.TestCase):
         self.assertIsNone(config.gemini_api_key)
         self.assertEqual(config.max_retries, DEFAULT_LLM_MAX_RETRIES)
         self.assertEqual(config.kb_descriptions_path, DEFAULT_KB_DESCRIPTIONS_PATH)
+        self.assertEqual(DEFAULT_GEMINI_MODEL, "gemini-3.5-flash-lite")
+        self.assertEqual((config.router_thinking, config.answer_thinking), ("minimal", "minimal"))
+        self.assertEqual(config.timeout_seconds, DEFAULT_GEMINI_TIMEOUT_SECONDS)
+        self.assertEqual(DEFAULT_GEMINI_TIMEOUT_SECONDS, 20.0)
+
+    def test_thinking_and_timeout_overrides(self):
+        config = self.config_with(GEMINI_ROUTER_THINKING=" Low ", GEMINI_ANSWER_THINKING="high",
+                                  GEMINI_TIMEOUT_SECONDS="7.5")
+        self.assertEqual((config.router_thinking, config.answer_thinking, config.timeout_seconds),
+                         ("low", "high", 7.5))
+
+    def test_invalid_thinking_falls_back_with_a_warning(self):
+        for raw in ("none", "off", "0"):
+            with self.subTest(raw=raw):
+                with self.assertLogs("agent.agent_config", level="WARNING"):
+                    config = self.config_with(GEMINI_ROUTER_THINKING=raw, GEMINI_ANSWER_THINKING=raw)
+                self.assertEqual((config.router_thinking, config.answer_thinking), ("minimal", "minimal"))
+
+    def test_invalid_timeout_falls_back_with_a_warning(self):
+        for raw in ("0", "-5", "soon", "inf", "nan"):
+            with self.subTest(raw=raw):
+                with self.assertLogs("agent.agent_config", level="WARNING"):
+                    self.assertEqual(self.config_with(GEMINI_TIMEOUT_SECONDS=raw).timeout_seconds,
+                                     DEFAULT_GEMINI_TIMEOUT_SECONDS)
 
     def test_environment_overrides(self):
         config = self.config_with(LLM_PROVIDER=" Gemini ", GEMINI_MODEL="gemini-x", GEMINI_API_KEY=" k ",

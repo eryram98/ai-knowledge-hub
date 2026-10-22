@@ -97,5 +97,5 @@ def build_llm(agent_config):
     if agent_config.llm_provider == "gemini":
         from agent.agent_gemini import GeminiLlm
         return GeminiLlm(agent_config.gemini_api_key, agent_config.gemini_model,
-                         max_retries=agent_config.max_retries)
+                         max_retries=agent_config.max_retries, timeout_seconds=agent_config.timeout_seconds)
     raise ValueError("Unknown LLM_PROVIDER {0!r}; supported: gemini".format(agent_config.llm_provider))

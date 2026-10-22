@@ -13,9 +13,10 @@ until after Oct 27. Ethan reviews it and may rewrite it after that.
    hardcoded. Then come the rules (usually one KB; two only if the answer *needs* both; none if
    no KB can answer it), the reply format, and 4 few-shot examples (datasheet, policy, both,
    off-topic). An example is shown only if every KB it names is configured.
-2. **One LLM call.** The user message is `Question: <question>`. Thinking is set to `low`
-   because this is a short classification, not reasoning. (`gemini-3.8-flash` rejects
-   `minimal` with a 400, so `low` is the lowest level that works.)
+2. **One LLM call.** The user message is `Question: <question>`. Thinking is set to `minimal`
+   (`GEMINI_ROUTER_THINKING`) because this is a short classification, not reasoning. The default
+   model `gemini-3.5-flash-lite` routes correctly at `minimal`. `gemini-3.8-flash` rejects `minimal`
+   with a 400, so with that model set `low`.
 3. **Parse and check the reply.** Strip a Markdown code fence if there is one, then
    `json.loads`. The reply must be an object with `kb_ids` (a list of configured ids, no
    duplicates, at most 2) and a non-blank `reason`.
@@ -36,7 +37,7 @@ and each KB description and picks the closest one.
 | Off-topic detection | Rule 3 plus an example; the model says "none" | Needs a similarity threshold, which we can't tune without labeled data |
 | "Needs both" | Can reason that a question has two parts | Two close scores don't mean both KBs are needed |
 | Explanation | `reason` is shown in the API and UI | A number |
-| Latency | One extra call (low thinking; 28.5 s in one run during a Gemini outage) | About 30 ms (bge-small is already loaded) |
+| Latency | One extra call (`gemini-3.5-flash-lite`, minimal thinking: 0.7-1.1 s on 2026-10-22; `gemini-3.8-flash` with low thinking took 28.5 s during an outage) | About 30 ms (bge-small is already loaded) |
 | Cost and quota | One free-tier call per question | Free, no quota |
 | Laptop feasibility | Yes (hosted LLM) | Yes |
 | Training data | None (4 examples in the prompt) | None, but threshold tuning needs some |
@@ -79,8 +80,8 @@ counted.
 3. **What happens with 10 KBs instead of 2?** The prompt grows by one line per KB, and the
    2-KB cap and the "every KB" fallback would need rethinking (the fallback would break the
    cap). Next steps: embedding similarity to shortlist KBs, then the LLM to choose among them.
-4. **Isn't an extra LLM call slow and expensive?** It's one short call with low thinking, on
-   the free tier. The measured latency and tokens are in PROGRESS.md. An off-topic question
+4. **Isn't an extra LLM call slow and expensive?** It's one short call with minimal thinking
+   (about 1 s on Flash-Lite), on the free tier. The measured latency and tokens are in PROGRESS.md. An off-topic question
    costs only this one call, because retrieval and the answer call are skipped.
 5. **Can a user manipulate the router with the question?** Rule 5 tells the model the question
    is text to classify. More importantly, the output is validated: the worst a manipulated reply

@@ -15,9 +15,10 @@ import re
 
 LOGGER = logging.getLogger(__name__)
 
-# Routing is a short classification, so the model barely needs to think. "low", not
-# "minimal": gemini-3.8-flash rejects "minimal" with a 400 (measured 2026-10-22).
-ROUTER_THINKING = "low"
+# Routing is a short classification, so the model barely needs to think. gemini-3.5-flash-lite routes
+# correctly at "minimal" (measured 2026-10-22); gemini-3.8-flash rejects "minimal" with a 400, so with that
+# model set GEMINI_ROUTER_THINKING=low.
+ROUTER_THINKING = "minimal"
 MAX_ROUTED_KBS = 2
 LOGGED_REPLY_CHARS = 200
 
@@ -103,7 +104,7 @@ def parse_routing_reply(text, kb_descriptions):
     return [kb_id for kb_id in kb_descriptions if kb_id in kb_ids], reason.strip()
 
 
-def route(question, kb_descriptions, llm):
+def route(question, kb_descriptions, llm, thinking=ROUTER_THINKING):
     """Pick the knowledge base or bases that can answer a question.
 
     Args:
@@ -116,6 +117,8 @@ def route(question, kb_descriptions, llm):
         llm: an LlmProvider (agent/agent_llm.py). llm.generate(prompt,
             system_instruction=None, thinking=None) returns an LlmResponse
             whose .text is the model's reply.
+        thinking: the routing call's thinking level (agent_llm.THINKING_LEVELS,
+            or None for the model's default). /ask passes GEMINI_ROUTER_THINKING.
 
     Returns:
         A dict:
@@ -137,7 +140,7 @@ def route(question, kb_descriptions, llm):
             into a 503.
     """
     response = llm.generate("Question: " + question, system_instruction=build_routing_instruction(kb_descriptions),
-                            thinking=ROUTER_THINKING)
+                            thinking=thinking)
     try:
         kb_ids, reason = parse_routing_reply(response.text, kb_descriptions)
     except InvalidRoutingReply as exc:

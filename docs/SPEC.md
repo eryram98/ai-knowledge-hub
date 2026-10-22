@@ -107,7 +107,8 @@ re-upload them to process again. An embedding or indexing error fails the docume
 `indexing_failure`. F5 adds the UI start command here.
 
 **LLM (F4).** `.env` sets `LLM_PROVIDER` (`gemini`), `GEMINI_MODEL` (default
-`gemini-3.8-flash`), `GEMINI_API_KEY` and `LLM_MAX_RETRIES` (default 3; 429, 503, 504 and network
+`gemini-3.5-flash-lite`), `GEMINI_API_KEY`, `GEMINI_ROUTER_THINKING` and `GEMINI_ANSWER_THINKING`
+(default `minimal` for both), `GEMINI_TIMEOUT_SECONDS` (per attempt, default 20) and `LLM_MAX_RETRIES` (default 3; 429, 503, 504 and network
 errors are retried after 2, 4, 8 s plus jitter, then `/ask` returns 503 `llm_unavailable`). The Gemini client is created on the first `/ask`, so the app
 starts without a key. KB display names and descriptions live in the committed
 `config/kb_descriptions.json` (`KB_DESCRIPTIONS_PATH` overrides it). A configured KB without an
@@ -115,7 +116,8 @@ entry stops the app at startup. The grounding prompt is in `backend/app/agent/ag
 Ethan approved it on 2026-10-20, so changing it needs his approval. The routing prompt is in
 `backend/app/agent/agent_router.py` (Ethan's design, approved 2026-10-22; same rule).
 `llm.generate(..., thinking=...)` takes a per-call thinking level (`None` for the model's default, or
-`minimal`, `low`, `medium`, `high`, sent as Gemini's `thinking_level`). The router uses `low`: `gemini-3.8-flash` rejects `minimal` with a 400.
+`minimal`, `low`, `medium`, `high`, sent as Gemini's `thinking_level`). Both steps default to `minimal`. `gemini-3.8-flash` rejects `minimal` with a 400, so switching
+back to it means setting both thinking variables to `low`.
 How routing works and why: `docs/ROUTER_EXPLAINED.md`.
 
 **API (F1).** Every error uses the canonical body `{code, message, details}` (plus

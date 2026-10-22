@@ -9,6 +9,9 @@ import re
 NO_ANSWER_SENTENCE = "The knowledge base doesn't contain this."
 OFF_TOPIC_PREFIX = "That question is outside what the knowledge bases cover. They cover: "
 SNIPPET_CHARS = 300
+# The answer is a short extraction from the sources. gemini-3.5-flash-lite answered correctly with no thinking
+# tokens at "minimal" (measured 2026-10-22). GEMINI_ANSWER_THINKING overrides it per deployment.
+ANSWER_THINKING = "minimal"
 
 ANSWER_SYSTEM_INSTRUCTION = (
     "You answer questions for the AI Knowledge Hub using only the numbered sources in the user message.\n"
@@ -97,8 +100,10 @@ def sources_for(hits, answer_text):
     return sources
 
 
-def answer_question(question, hits, llm, kb_names):
+def answer_question(question, hits, llm, kb_names, thinking=ANSWER_THINKING):
     """Answer from the hits (the merged list, best first) with one LLM call; no hits means no call.
+
+    thinking is the call's thinking level (agent_llm.THINKING_LEVELS, or None for the model's default).
 
     Returns {"answer": str, "no_answer": bool, "sources": [...]}. LLM errors
     (including LlmUnavailableError) propagate to the caller.
@@ -106,7 +111,7 @@ def answer_question(question, hits, llm, kb_names):
     if not hits:
         return {"answer": NO_ANSWER_SENTENCE, "no_answer": True, "sources": []}
     response = llm.generate(build_answer_prompt(question, hits, kb_names),
-                            system_instruction=ANSWER_SYSTEM_INSTRUCTION)
+                            system_instruction=ANSWER_SYSTEM_INSTRUCTION, thinking=thinking)
     answer = response.text.strip()
     no_answer = is_no_answer(answer)
     return {

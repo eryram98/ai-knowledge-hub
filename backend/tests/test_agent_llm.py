@@ -67,6 +67,7 @@ class TestBuildLlm(unittest.TestCase):
         config.gemini_api_key = None
         config.gemini_model = "gemini-test"
         config.max_retries = 2
+        config.timeout_seconds = 7.5
         return config
 
     def test_gemini_is_built_without_a_network_call_or_key(self):
@@ -74,6 +75,7 @@ class TestBuildLlm(unittest.TestCase):
         self.assertIsInstance(llm, GeminiLlm)
         self.assertEqual(llm.model_name, "gemini-test")
         self.assertEqual(llm.max_retries, 2)
+        self.assertEqual(llm.timeout_seconds, 7.5)
         self.assertIsNone(llm._client)
 
     def test_unknown_provider_is_a_startup_error(self):
