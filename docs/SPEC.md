@@ -69,7 +69,7 @@ is added.
 | F1 | `fastapi`, `uvicorn`, `python-multipart` (replace `fastapi[standard]`), `httpx` (TestClient), `ruff` |
 | F2 | `sentence-transformers==6.1.0`, `torch==2.14.1`, `chromadb==1.5.9`, `rank-bm25==0.2.2` (Chroma also pulls in `uvicorn[standard]`, opentelemetry, kubernetes and grpcio) |
 | F4 | `google-genai==2.28.0` (2.31.0 was less than two weeks old on 2026-10-20) |
-| F5 | `streamlit` (needs 1.37 or later for `st.fragment(run_every=...)`) |
+| F5 | `streamlit==1.65.0` (needs 1.37 or later for `st.fragment(run_every=...)`; 1.66.x was less than two weeks old on 2026-10-22). Adds about 255 MB to the venv. |
 
 **How to run** (Windows PowerShell, repo root):
 
@@ -77,8 +77,10 @@ is added.
 .venv\Scripts\python -m pip install -r requirements.txt
 copy .env.example .env    # then set GEMINI_API_KEY and check the KB IDs
 .venv\Scripts\python -m unittest discover -s backend\tests
-.venv\Scripts\python -m ruff check backend
+.venv\Scripts\python -m unittest discover -s ui\tests     # UI tests + headless smoke test (F5)
+.venv\Scripts\python -m ruff check backend ui
 .venv\Scripts\python -m uvicorn api.api_app:create_app --factory --app-dir backend\app --port 8000
+.venv\Scripts\python -m streamlit run ui\app.py          # UI (F5), second terminal, API must be running
 ```
 
 **Indexing notes (F2).**
@@ -104,7 +106,15 @@ Uploaded files go to `backend/instance/uploads/<document_id>/` (git-ignored). On
 documents still `processing` from a crashed or killed run are marked `failed`
 (`internal_failure`, "interrupted by server restart") and their vectors removed;
 re-upload them to process again. An embedding or indexing error fails the document with
-`indexing_failure`. F5 adds the UI start command here.
+`indexing_failure`.
+
+**UI (F5).** The Streamlit command above opens `http://localhost:8501` with two pages,
+Documents and Ask. It reads `API_BASE_URL` from `.env` (default `http://127.0.0.1:8000`) and
+talks to the API over HTTP only; nothing under `ui/` imports a backend module (a test checks
+this). Usage statistics are off in `.streamlit/config.toml`, which Streamlit reads when started
+from the repo root. The status table refreshes every 2 s while a document of the selected KB is
+queued or processing, and stops when all are done. The smoke test in `ui\tests` starts
+`streamlit run ui\app.py` headless on a free port and checks `/_stcore/health`.
 
 **LLM (F4).** `.env` sets `LLM_PROVIDER` (`gemini`), `GEMINI_MODEL` (default
 `gemini-3.5-flash-lite`), `GEMINI_API_KEY`, `GEMINI_ROUTER_THINKING` and `GEMINI_ANSWER_THINKING`
@@ -186,7 +196,7 @@ question (UI/API) → router (which KB?) → per-KB vector + BM25 search
 | Query routing | pick the KB or KBs for a question | **Yes** (paused until after Oct 27; Claude wrote it to Ethan's design, Ethan reviews) | Ethan | F4 |
 | Agent and LLM | provider interface (Gemini by default), grounded prompt, no-answer path | No | Ethan | F4 |
 | API | FastAPI endpoints for upload, status, inventory and ask | No | Ethan | F1, F4 |
-| UI | Streamlit Documents and Ask pages | No | Erynn (likely) | F5 |
+| UI | Streamlit Documents and Ask pages | No | Ethan (Claude-built) | F5 |
 | Evaluation | eval set, routing accuracy, hit@5, later Judge Agent | No (Judge: no) | Ethan | F6, F11 |
 
 ## 5. Quality and evaluation
