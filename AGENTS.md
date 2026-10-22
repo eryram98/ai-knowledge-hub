@@ -15,7 +15,10 @@ Nityanand are non-technical PMs.
 
 ## Session start (every session, before changing anything)
 
-1. Read `AGENTS.md`, `docs/SPEC.md` and `docs/PROGRESS.md`.
+1. Read `AGENTS.md`, `docs/SPEC.md` and `docs/PROGRESS.md` (kept under 150 lines: Now,
+   features, current decisions, known issues, open questions, AI-written code).
+   - Don't read `docs/PROGRESS_ARCHIVE.md` (full session logs, older decision detail)
+     unless you need that detail. Then Grep it and read only the matching lines.
 2. Run `git status`. Then, if the branch has an upstream, run `git pull --ff-only`;
    otherwise run `git fetch` and say the branch is local-only.
 3. Run the checks (see Commands).
@@ -151,7 +154,10 @@ tell Ethan exactly what to click and what he should see.
 
 ## Keep PROGRESS.md current
 
-- Newest first. Summarize old detail instead of letting the file grow without limit.
+- Newest first, and under 150 lines. Decisions are one line each. Session log entries,
+  measurements and full decision reasoning go at the top of the "Session log (archived)"
+  section of `docs/PROGRESS_ARCHIVE.md`. Move superseded decisions and resolved issues
+  there too.
 - Keep the "AI-written code" list current: every file or function you write or
   substantially change goes in it.
 - Record decisions, deviations from SPEC.md, known issues and evaluation numbers as
