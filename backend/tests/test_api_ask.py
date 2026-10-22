@@ -22,10 +22,12 @@ from fastapi.testclient import TestClient
 
 from agent_fakes import KB_INFOS, FakeLlm
 from indexing_fakes import FakeEmbedder, ephemeral_vector_index
+from test_agent_gemini import FakeClient, api_error
 from test_api_search import KB_IDS, SearchApiTestCase, make_config, make_retrieval_config
 
 from agent.agent_answer import ANSWER_SYSTEM_INSTRUCTION, NO_ANSWER_SENTENCE
 from agent.agent_config import KbInfo
+from agent.agent_gemini import GeminiLlm
 from agent.agent_llm import LlmError, LlmUnavailableError
 from api.api_app import create_app
 from ingestion.ingestion_status_repository import SQLiteIngestionStatusRepository
@@ -205,6 +207,22 @@ class TestAskErrors(AskApiTestCase):
         with self.assertLogs("api.api_app", level="WARNING"):
             response = self.ask(scripted_router(["hw_datasheets"]))
         self.assertCanonicalError(response, 503, "llm_unavailable")
+
+    def test_gemini_504_is_503_with_retry_after(self):
+        # The real provider against a fake client: a 504 DEADLINE_EXCEEDED must reach /ask as "busy", not a 500.
+        client = FakeClient(api_error(504, "DEADLINE_EXCEEDED"))
+        self.app = create_app(
+            config=make_config(), status_repository=self.status_repository,
+            upload_dir=os.path.join(self.directory, "uploads"), embedder=self.embedder,
+            vector_index=self.app.state.vector_index, retrieval_config=make_retrieval_config(),
+            llm=GeminiLlm("test-key", "gemini-test", max_retries=0, client=client, sleep=lambda delay: None),
+            kb_infos=KB_INFOS,
+        )
+        with self.assertLogs("api.api_app", level="WARNING"):
+            response = self.ask(scripted_router(["hw_datasheets"]), ingest=False)
+        self.assertCanonicalError(response, 503, "llm_unavailable")
+        self.assertEqual(response.headers["retry-after"], "30")
+        self.assertEqual(len(client.models.calls), 1)
 
     def test_other_llm_error_is_500(self):
         self.llm.replies = ["route reply", LlmError("Gemini request failed: 400 INVALID_ARGUMENT")]

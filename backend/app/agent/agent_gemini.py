@@ -1,9 +1,10 @@
 """Gemini implementation of the LLM provider (F4), through the google-genai SDK.
 
 The SDK's own retries are off (its default), so this class owns them: a 429
-(rate limit), a 503 (model overloaded) or a network error is retried with
-exponential backoff and jitter, up to max_retries times, and then raised as
-LlmUnavailableError. Any other API error is an LlmError at once.
+(rate limit), a 503 (model overloaded), a 504 (DEADLINE_EXCEEDED on Gemini's
+side) or a network error is retried with exponential backoff and jitter, up to
+max_retries times, and then raised as LlmUnavailableError. Any other API error
+is an LlmError at once.
 
 The client is created on the first call, so the app and /search start
 without GEMINI_API_KEY.
@@ -23,7 +24,7 @@ from agent.agent_llm import LlmError, LlmProvider, LlmResponse, LlmUnavailableEr
 
 LOGGER = logging.getLogger(__name__)
 
-RETRYABLE_STATUS_CODES = (429, 503)
+RETRYABLE_STATUS_CODES = (429, 503, 504)
 DEFAULT_BASE_DELAY_SECONDS = 2.0
 DEFAULT_TIMEOUT_SECONDS = 60.0
 

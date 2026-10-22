@@ -5,7 +5,7 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 ## Now
 
 - **Branches:** the old stack (F0-F3) is merged into `main` (PRs #4 and #5, `c48a584`). New
-  branches base on `main`. `ethan/f4-ask` is local-only (not pushed).
+  branches base on `main`. `ethan/f4-ask` is pushed (tracks `origin/ethan/f4-ask`).
 - **Coach mode is paused** for `route()` and the rest of the MVP (F4-F6) until after Oct 27
   (Ethan, 2026-10-22). It resumes for F7-F9, and Ethan reviews `route()` then
   (`docs/ROUTER_EXPLAINED.md`).
@@ -38,8 +38,7 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
      fake LLM. F5 and F6 remain. If a day is lost, cut F6's eval script down to routing accuracy
      only.
   2. Gemini reliability: on 2026-10-22, `gemini-3.8-flash` returned 503 three times and then a 504
-     `DEADLINE_EXCEEDED`. A 504 isn't retried and becomes a 500, not the 503 "busy" state
-     (Known issues). Have the provider-switch plan (SPEC Oct 27 checklist) ready.
+     `DEADLINE_EXCEEDED` (504s are retried and map to 503 since 2026-10-22). Have the provider-switch plan (SPEC Oct 27 checklist) ready.
   3. Gemini free-tier quotas during rehearsal and the demo. Every `/ask` makes 2 LLM calls
      (route + answer), so the F6 eval run of 8 questions is about 16 calls. A 429 is retried
      3 times (about 15 s), then `/ask` returns 503.
@@ -274,6 +273,7 @@ unless marked "(Claude, small call)".
 | 2026-10-20 | Router reply format in tests | The router tests build every scripted LLM reply through one `routing_reply()` helper (JSON to start), which Ethan changes to match his format. The `route()` docstring doesn't fix a format. | A JSON reply format in the contract (takes the choice away from Ethan) | Ethan |
 | 2026-10-20 | F4 dependency | `google-genai==2.28.0` under "# LLM (F4)". 2.31.0 was approved with a fallback to the newest release at least two weeks old; 2.31.0 (2026-10-14) was 6 days old. | | Ethan |
 | 2026-10-20 | Default Gemini model | `gemini-3.8-flash`, the newest stable Flash in the key's `models.list()` on 2026-10-20, as a code default overridable by `GEMINI_MODEL` | `gemini-flash-latest` (an alias that moves without notice, so runs aren't reproducible) (Claude, small call) | Ethan |
+| 2026-10-22 | Retrying Gemini 504 | 504 `DEADLINE_EXCEEDED` joins 429 and 503: retried, then `LlmUnavailableError` → `/ask` 503 `llm_unavailable` | Leave it a 500 (Gemini's own deadline is a transient server-side failure, and the UI should show "busy, try again") | Ethan |
 | 2026-10-20 | What the Gemini provider retries | 429, 503 and network errors (httpx transport errors), up to `LLM_MAX_RETRIES` (3) with 2/4/8 s backoff plus up to 1 s jitter, then `LlmUnavailableError`. Other API errors fail at once as `LlmError` (→ 500). The SDK's own retries stay off (its default). | 429 only (Gemini's "model overloaded" is a 503, and retrying it is just as harmless) (Claude, small call) | Ethan |
 | 2026-10-20 | `/ask` error mapping | `route()` NotImplementedError → 501 `not_implemented`; `LlmUnavailableError` at any step → 503 `llm_unavailable` with `Retry-After: 30`; other `LlmError` → 500 without provider details; a `route()` result that breaks its contract (not a dict, unknown or duplicate KB, more than 2, wrong types) → logged 500 | Trust `route()`'s output (a bug in it would surface as a confusing KeyError or a search of an unknown KB) (Claude, small call) | Ethan |
 | 2026-10-20 | `/ask` answer details | Merged top 10 into the prompt; no hits → the no-answer sentence without an LLM call; `no_answer` only when the reply is the no-answer sentence alone; every prompted chunk is returned as a numbered source with `cited` (its [n] appears in the answer) and a 300-character snippet; usage counts thinking tokens as output and covers the route and answer calls through a `UsageRecorder` wrapper | Return only cited sources (hides what the model saw) (Claude, small call) | Ethan |
@@ -343,9 +343,8 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
 
 ## Known issues
 
-- **Gemini 504 isn't treated as "unavailable"** (found 2026-10-22). `GeminiLlm` retries only 429
-  and 503, so a 504 `DEADLINE_EXCEEDED` fails at once as `LlmError` → `/ask` 500 "The language
-  model call failed", not the 503 "busy, try again" state. Fix proposed (open decision).
+- *(Fixed 2026-10-22)* A Gemini 504 `DEADLINE_EXCEEDED` wasn't retried and became a 500. It is
+  now retried like a 503 and ends as 503 `llm_unavailable`.
 - `gemini-3.8-flash` rejects thinking level `minimal` (400). The router uses `low`.
 - With 3 or more configured KBs, the router's fallback ("every configured KB") would exceed the
   2-KB cap, and `/ask`'s `_checked_routing` would return 500. Not reachable with 2 KBs.

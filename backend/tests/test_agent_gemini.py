@@ -120,6 +120,21 @@ class TestGeminiRetries(GeminiTestCase):
         self.assertEqual(self.sleeps, [2.5, 4.5, 8.5])  # no sleep after the last attempt
         self.assertIn("429", str(caught.exception))
 
+    def test_504_deadline_exceeded_then_success_is_retried(self):
+        llm = self.make_llm(api_error(504, "DEADLINE_EXCEEDED"), gemini_response("ok"))
+        with self.assertLogs("agent.agent_gemini", level="WARNING"):
+            self.assertEqual(llm.generate("p").text, "ok")
+        self.assertEqual(self.sleeps, [2.5])
+        self.assertEqual(len(self.client.models.calls), 2)
+
+    def test_504_every_time_raises_unavailable_after_the_retries(self):
+        llm = self.make_llm(*[api_error(504, "DEADLINE_EXCEEDED")] * 4, max_retries=3)
+        with self.assertLogs("agent.agent_gemini", level="WARNING"):
+            with self.assertRaises(LlmUnavailableError) as caught:
+                llm.generate("p")
+        self.assertEqual(len(self.client.models.calls), 4)
+        self.assertIn("504 DEADLINE_EXCEEDED", str(caught.exception))
+
     def test_network_error_is_retried_then_unavailable(self):
         llm = self.make_llm(httpx.ConnectError("down"), httpx.ReadTimeout("slow"), max_retries=1)
         with self.assertLogs("agent.agent_gemini", level="WARNING"):

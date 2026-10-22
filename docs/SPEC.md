@@ -107,8 +107,8 @@ re-upload them to process again. An embedding or indexing error fails the docume
 `indexing_failure`. F5 adds the UI start command here.
 
 **LLM (F4).** `.env` sets `LLM_PROVIDER` (`gemini`), `GEMINI_MODEL` (default
-`gemini-3.8-flash`), `GEMINI_API_KEY` and `LLM_MAX_RETRIES` (default 3; 429 and 503 are retried
-after 2, 4, 8 s plus jitter). The Gemini client is created on the first `/ask`, so the app
+`gemini-3.8-flash`), `GEMINI_API_KEY` and `LLM_MAX_RETRIES` (default 3; 429, 503, 504 and network
+errors are retried after 2, 4, 8 s plus jitter, then `/ask` returns 503 `llm_unavailable`). The Gemini client is created on the first `/ask`, so the app
 starts without a key. KB display names and descriptions live in the committed
 `config/kb_descriptions.json` (`KB_DESCRIPTIONS_PATH` overrides it). A configured KB without an
 entry stops the app at startup. The grounding prompt is in `backend/app/agent/agent_answer.py`;

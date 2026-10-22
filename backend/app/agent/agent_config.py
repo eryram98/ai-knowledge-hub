@@ -40,7 +40,7 @@ class AgentConfig(object):
       - LLM_PROVIDER: "gemini" (the only provider so far)
       - GEMINI_MODEL: Gemini model name (default gemini-3.8-flash)
       - GEMINI_API_KEY: required for real calls, not for starting the app
-      - LLM_MAX_RETRIES: retries after a 429 or 503 before giving up (default 3)
+      - LLM_MAX_RETRIES: retries after a 429, 503 or 504 before giving up (default 3)
       - KB_DESCRIPTIONS_PATH: KB names and descriptions JSON (default config/kb_descriptions.json)
     """
 
