@@ -68,7 +68,7 @@ is added.
 |---|---|
 | F1 | `fastapi`, `uvicorn`, `python-multipart` (replace `fastapi[standard]`), `httpx` (TestClient), `ruff` |
 | F2 | `sentence-transformers==6.1.0`, `torch==2.14.1`, `chromadb==1.5.9`, `rank-bm25==0.2.2` (Chroma also pulls in `uvicorn[standard]`, opentelemetry, kubernetes and grpcio) |
-| F4 | `google-genai` |
+| F4 | `google-genai==2.28.0` (2.31.0 was less than two weeks old on 2026-10-20) |
 | F5 | `streamlit` (needs 1.37 or later for `st.fragment(run_every=...)`) |
 
 **How to run** (Windows PowerShell, repo root):
@@ -106,10 +106,25 @@ documents still `processing` from a crashed or killed run are marked `failed`
 re-upload them to process again. An embedding or indexing error fails the document with
 `indexing_failure`. F5 adds the UI start command here.
 
+**LLM (F4).** `.env` sets `LLM_PROVIDER` (`gemini`), `GEMINI_MODEL` (default
+`gemini-3.5-flash-lite`), `GEMINI_API_KEY`, `GEMINI_ROUTER_THINKING` and `GEMINI_ANSWER_THINKING`
+(default `minimal` for both), `GEMINI_TIMEOUT_SECONDS` (per attempt, default 20) and `LLM_MAX_RETRIES` (default 3; 429, 503, 504 and network
+errors are retried after 2, 4, 8 s plus jitter, then `/ask` returns 503 `llm_unavailable`). The Gemini client is created on the first `/ask`, so the app
+starts without a key. KB display names and descriptions live in the committed
+`config/kb_descriptions.json` (`KB_DESCRIPTIONS_PATH` overrides it). A configured KB without an
+entry stops the app at startup. The grounding prompt is in `backend/app/agent/agent_answer.py`;
+Ethan approved it on 2026-10-20, so changing it needs his approval. The routing prompt is in
+`backend/app/agent/agent_router.py` (Ethan's design, approved 2026-10-22; same rule).
+`llm.generate(..., thinking=...)` takes a per-call thinking level (`None` for the model's default, or
+`minimal`, `low`, `medium`, `high`, sent as Gemini's `thinking_level`). Both steps default to `minimal`. `gemini-3.8-flash` rejects `minimal` with a 400, so switching
+back to it means setting both thinking variables to `low`.
+How routing works and why: `docs/ROUTER_EXPLAINED.md`.
+
 **API (F1).** Every error uses the canonical body `{code, message, details}` (plus
 `field` or `file_name` when relevant). Status codes: `unknown_kb`, `validation_failed`
 and `batch_limit_exceeded` → 400; `not_found` → 404; `file_too_large` → 413;
-`internal_failure` → 500.
+`internal_failure` → 500; `not_implemented` → 501; `llm_unavailable` → 503 with
+`Retry-After: 30` (F4).
 
 | Endpoint | Returns |
 |---|---|
@@ -117,8 +132,9 @@ and `batch_limit_exceeded` → 400; `not_found` → 404; `file_too_large` → 41
 | `GET /documents?kb_id=` | `{documents: [...]}`, newest first, without history |
 | `GET /documents/status?document_id=a&document_id=b` | Batch status: counts, progress, `missing_document_ids` |
 | `GET /documents/{id}` | Status, timestamps, `failure_code`, `failure_reason` and history |
-| `GET /kbs` | `{kbs: [{kb_id, counts: {queued, processing, success, failed}, total}]}` in config order |
+| `GET /kbs` | `{kbs: [{kb_id, name, description, counts: {queued, processing, success, failed}, total}]}` in config order. `name` and `description` come from `config/kb_descriptions.json` (F4). |
 | `POST /search` (JSON: `query`, optional `kb_ids` (default: every configured KB), `top_k` 1-100 (default `RETRIEVAL_TOP_K`, 20), `top_n` 1-100 (default 10), `chunker` (default the baseline)) | Debug retrieval evidence, no LLM (F3): `{query, kb_ids, chunker, top_k, top_n, results: {kb_id: {vector: [...], keyword: [...]}}, merged, merge_error}`. A hit is `{chunk_id, rank, score, source, text, document_id, original_filename, page_start, page_end, kb_id}`, from `success` documents only. `merged` is `merge_ranked_lists` over every KB's two lists. If the merge raises, `merged` is null and `merge_error` holds the canonical error (`not_implemented` until RRF exists), still with 200 and the raw lists. |
+| `POST /ask` (JSON: `question`, 1-2000 chars) | F4: `route()` → retrieval for the routed KBs (`RETRIEVAL_TOP_K` per list) → `merge_ranked_lists` (top 10) → grounded answer. `{question, answer, no_answer, off_topic, sources: [{number, chunk_id, document_id, document, page_start, page_end, kb_id, snippet, cited}], kb_ids, route_reason, routing_fallback, usage: {input_tokens, output_tokens, calls: [{step, model, input_tokens, output_tokens}]}}`. Off-topic (no KB routed): an answer listing the KB descriptions, no retrieval and no answer call. No hits: the no-answer sentence without an answer call. 501 `not_implemented` until `route()` exists; 503 `llm_unavailable` when the LLM stays rate-limited or unavailable after the retries; 500 if `route()` breaks its contract or the LLM call fails otherwise. |
 
 **Data layout.**
 - `data/corpus/<kb_id>/`: public documents, downloaded by hand. Git-ignored.
@@ -167,7 +183,7 @@ question (UI/API) → router (which KB?) → per-KB vector + BM25 search
 | Retrieval plumbing | per-KB vector and keyword search returning separate ranked lists | No | Ethan | F3 |
 | Hybrid merge (RRF) | merge the two ranked lists | **Yes** | Ethan | F3 |
 | Re-ranking | re-rank the merged list | **Yes** | Ethan | F7 |
-| Query routing | pick the KB or KBs for a question | **Yes** | Ethan | F4 |
+| Query routing | pick the KB or KBs for a question | **Yes** (paused until after Oct 27; Claude wrote it to Ethan's design, Ethan reviews) | Ethan | F4 |
 | Agent and LLM | provider interface (Gemini by default), grounded prompt, no-answer path | No | Ethan | F4 |
 | API | FastAPI endpoints for upload, status, inventory and ask | No | Ethan | F1, F4 |
 | UI | Streamlit Documents and Ask pages | No | Erynn (likely) | F5 |
@@ -243,8 +259,9 @@ Each feature is sized for one session and ends with every check passing and a co
 **F4: Answer endpoint.**
 - *Done when:*
   - `POST /ask {question}` runs routing (a router interface plus tests written by
-    Claude; **routing logic by Ethan, coach mode**), then retrieval and merge for the
-    routed KBs, then the LLM provider.
+    Claude; routing logic written by Claude to Ethan's design, because coach mode is
+    paused until after Oct 27 (decided 2026-10-22); Ethan reviews and may rewrite it
+    after Oct 27), then retrieval and merge for the routed KBs, then the LLM provider.
   - The answer is grounded only in the retrieved chunks.
   - The response contains the answer, sources (document, page, KB, chunk), the routed
     KB or KBs, and a `no_answer` flag.

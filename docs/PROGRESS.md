@@ -4,42 +4,53 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 ## Now
 
-- **Branch stack (unmerged, oldest first):** `feat/text-extraction` → `chore/claude-code-setup`
-  → `feat/kb-id` → `feat/pipeline-baseline` → `ethan/project-setup` → `ethan/f1-api`
-  → `ethan/f2-indexing` → `ethan/f3-retrieval`. Base new branches on `ethan/f3-retrieval`
-  until the stack merges into `main`.
-- **Current feature:** none. F3 is done on `ethan/f3-retrieval`, including Ethan's RRF merge.
+- **Branches:** the old stack (F0-F3) is merged into `main` (PRs #4 and #5, `c48a584`). New
+  branches base on `main`. `ethan/f4-ask` is pushed (tracks `origin/ethan/f4-ask`).
+- **Coach mode is paused** for `route()` and the rest of the MVP (F4-F6) until after Oct 27
+  (Ethan, 2026-10-22). It resumes for F7-F9, and Ethan reviews `route()` then
+  (`docs/ROUTER_EXPLAINED.md`).
+- **Current feature:** F4 is done and verified end to end with real Gemini on `ethan/f4-ask`
+  (2026-10-22): default model `gemini-3.5-flash-lite`, `minimal` thinking for both steps, and all 3
+  real `/ask` checks passed in 1.0-2.1 s.
 - **Next concrete steps:**
-  1. Ethan: make `merge_ranked_lists` reject a non-integer `top_n` (2.5, "3", True) instead
-     of truncating it with `int()`, so `test_top_n_must_be_an_integer` passes, then commit
-     "fix(retrieval): validate merge arguments, restore docstring" (the rest is uncommitted
-     in the working tree).
-  2. F4 (`/ask`, router interface + tests by Claude, routing by Ethan) on `ethan/f4-ask`.
+  1. Ethan: push `ethan/f4-ask` and open the F4 PR for Erynn.
+  2. F5 (Streamlit, Erynn likely) and F6 (seed script, eval set, demo script). The dev DB was
+     rebuilt from `data/corpus/` on 2026-10-22 (no RP2040), so it already matches what the seed
+     script should produce.
 - **Ethan by hand:**
-  - Try `POST /search` at `http://127.0.0.1:8000/docs`: `merged` is now filled and
-    `merge_error` is null.
+  - Start the API (SPEC section 2) with `HF_HUB_OFFLINE=1`, open `http://127.0.0.1:8000/docs`,
+    and `POST /ask` with "What are the board dimensions of the Pico?". Expect `kb_ids:
+    ["hw_datasheets"]`, "51 × 21 mm, 1 mm thick PCB [3][8]", and `usage.calls` with a `route` and
+    an `answer` step on `gemini-3.5-flash-lite`.
+  - "Am I allowed to share my account password with another student?" Expect `kb_ids:
+    ["it_policies"]` and an answer citing `policy-utdbp3096.pdf` (Access Control: never disclose
+    your password).
+  - Ask "Who won the 1998 World Cup?". Expect `off_topic: true`, the message listing what the
+    KBs cover (descriptions, no KB IDs), and only one call in `usage.calls`.
+  - Fill in the blank URLs in `data/corpus/MANIFEST.md`.
   - Your `.env` comment on line 11 still points at the deleted `docs/decisions.md`.
-  - Add public documents for `it_policies` (none yet) and more datasheets, each listed in
-    `data/corpus/MANIFEST.md`. The Pico datasheet is in `hw_datasheets/` now.
-  - Optional: set `HF_HUB_OFFLINE=1` in your shell now that bge-small is cached.
 
-## Countdown and risk (as of 2026-10-20)
+## Countdown and risk (as of 2026-10-22)
 
-- **7 days to the progress demo (2026-10-27). 49 days to the final demo (2026-12-08).**
+- **5 days to the progress demo (2026-10-27). 47 days to the final demo (2026-12-08).**
 - At risk:
-  1. F1-F3 are done. F4-F6 remain in 7 days. If a day is lost, cut F6's eval script down
-     to routing accuracy only, not the demo itself.
-  2. `/ask` (F4) depends on Ethan's router (coach mode). The RRF merge is done, and
-     `/search` demos the raw and merged retrieval evidence.
-  3. The F2 install is 1.3 GB and took about 6.5 minutes; bge-small is a 128 MB
-     download. Install and cache both on the demo laptop well before the demo, then use
-     `HF_HUB_OFFLINE=1`.
-  4. The corpus has one document (Pico datasheet in `hw_datasheets`); `it_policies` is
-     empty. F6 needs both KBs.
-  5. Baseline retrieval on the datasheet is weak for some questions (manual run below):
-     fixed 1000-character chunks split tables and sections. Expected, and it is the Table
-     Challenge motivation, but pick demo questions carefully.
-  6. Gemini free-tier quotas during rehearsal and the demo (see the SPEC fallbacks).
+  1. F5 and F6 remain. If a day is lost, cut F6's eval script down to routing accuracy only.
+  2. Gemini reliability: on 2026-10-22, `gemini-3.8-flash` failed every call (504s at about 59 s
+     and one 503), while `gemini-3.5-flash-lite` answered every call in about 1 s. Flash-Lite
+     quality is checked on only 3 questions so far (F6's eval set will tell more). Fallback: set
+     `GEMINI_MODEL` in `.env` (with both thinking variables at `low` for `gemini-3.8-flash`), or the
+     provider-switch plan (SPEC Oct 27 checklist).
+  3. Gemini free-tier quotas during rehearsal and the demo. Every `/ask` makes 2 LLM calls
+     (route + answer), so the F6 eval run of 8 questions is about 16 calls. A 429 is retried
+     3 times (about 15 s), then `/ask` returns 503.
+  4. Gemini latency: with Flash-Lite and `minimal` thinking, `/ask` took 2.1 s (datasheet), 1.6 s
+     (policy) and 1.0 s (off-topic) on 2026-10-22. The per-attempt timeout is 20 s, so the worst
+     case with 3 retries is about 1.5 min per step. Measure again on the demo laptop.
+  5. The F2 install is 1.3 GB and bge-small is a 128 MB download. Install and cache both on the
+     demo laptop well before the demo, then use `HF_HUB_OFFLINE=1`.
+  6. Baseline retrieval on the datasheet is weak for some questions (fixed 1000-character
+     chunks split tables). Expected (Table Challenge motivation), but pick demo questions
+     carefully.
 
 ## Features
 
@@ -49,7 +60,7 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 | F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Done | `ethan/f1-api` | `1693e82`, `f077c3c`, `4e7eae5` (chores), `1aeffe8`, `c1df404` |
 | F2 | Indexing: bge-small, Chroma and BM25 per KB | Done | `ethan/f2-indexing` | `a922552` |
 | F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Done | `ethan/f3-retrieval` | `2b0566e`, this commit (RRF) |
-| F4 | `/ask`: routing (Ethan, coach), grounded Gemini answer, sources | To do | | |
+| F4 | `/ask`: routing (Claude to Ethan's design; coach mode paused), grounded Gemini answer, sources | Done (verified with real Gemini) | `ethan/f4-ask` | `1aa5866`, `8f8f8cd`, `4fe7ab2`, this commit |
 | F5 | Streamlit UI: Documents and Ask pages | To do (Erynn likely) | | |
 | F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | To do | | |
 | F7 | Re-ranking (coach) | After Oct 27 | | |
@@ -89,6 +100,104 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 | 8.11 manual retry hooks | Deferred, not scheduled |
 
 ## Session log
+
+- **2026-10-22 (2) · Ethan + Claude · `ethan/f4-ask` · 504 retry, model choice, real `/ask` check.**
+  - Start: clean tree, up to date with `origin/ethan/f4-ask`. 345 tests OK, 3 skipped; Ruff
+    clean.
+  - `4fe7ab2`: Gemini 504 `DEADLINE_EXCEEDED` is retried like 503 and ends as 503
+    `llm_unavailable`. 3 new tests.
+  - Dev DB rebuilt (Ethan's choice): deleted the SQLite DB, Chroma and stored uploads, then
+    uploaded `data/corpus/` through `POST /documents`. 7 documents `success` in 62 s (chunks:
+    Pico 58, Pico 2 47, Pico W 50, product guide 5, utdbp3096 37, Process_UserData 5,
+    policiespyramidnew 2). The RPi 5 brief was rejected (over 25 MB). The RP2040 datasheet is gone.
+  - Model comparison: 12 generation calls, scratch script, no retries. Real retrieval
+    (`hw_datasheets`, RRF top 10) and the real prompts, on "What are the board dimensions of the Pico?":
+
+    | Model | Thinking | Router (2 calls) | Answer (2 calls) |
+    |---|---|---|---|
+    | `gemini-3.8-flash` | low | 504, 504 (58.8, 58.9 s) | 503 (0.4 s), 504 (58.7 s) |
+    | `gemini-3.5-flash-lite` | minimal | correct, 1.09 / 0.68 s, 363 in / 32 out / 0 thinking | correct "51 × 21 mm, 1 mm thick PCB [3][8]", 0.99 / 0.53 s, 3,230 in / 28 out / 0 thinking |
+    | `gemini-2.5-flash` | budget 0 | 404 "no longer available to new users" (×2) | 404 (×2) |
+
+    `models.list()` lists `gemini-2.5-flash`, but the key can't use it. The 3.8 Lite variants on
+    the key are TTS only.
+  - Applied (Ethan approved): default `gemini-3.5-flash-lite`; `GEMINI_ROUTER_THINKING` and
+    `GEMINI_ANSWER_THINKING` (default `minimal`); `GEMINI_TIMEOUT_SECONDS` (default 20, was a
+    fixed 60). `route()` and `answer_question()` gained an optional `thinking` argument, which
+    `/ask` fills from the config.
+  - Real `/ask` (uvicorn, `HF_HUB_OFFLINE=1`, `LLM_MAX_RETRIES=1`, 5 calls, no retries in the log):
+    1. Pico dimensions → `["hw_datasheets"]`, "Board dimensions are a physical specification found
+       in hardware datasheets.", 2.11 s, 3,593 in / 56 out. Answer "51 × 21 mm, 1 mm thick PCB
+       [3][8]" (pico-datasheet.pdf p7, p6-7).
+    2. Password sharing → `["it_policies"]`, "A password sharing question is governed by university
+       IT security policies.", 1.55 s, 2,731 in / 81 out. Answer: "No ... never disclose their
+       account password ... [1]" (policy-utdbp3096.pdf p8).
+    3. 1998 World Cup → `[]`, `off_topic: true`, "Sports history is not covered by any knowledge
+       base.", 0.97 s, 1 call, 365 in / 21 out.
+  - Tests: 354 run, OK, 3 skipped, in all 4 full runs this session (logs saved). No flaky error
+    showed up, so there's no traceback to record. Ruff clean.
+
+- **2026-10-22 · Ethan + Claude · `ethan/f4-ask` · F4 `route()`, per-call thinking, corpus.**
+  - Start: clean tree, local-only branch (`git fetch` done). 330 tests OK, 3 skipped, 8 expected
+    failures; Ruff clean.
+  - Ethan paused coach mode for the MVP (decision log). AGENTS.md and SPEC.md updated.
+  - `route()` implemented to Ethan's design: a prompt built from `kb_descriptions`, 4 few-shot
+    examples, a JSON reply (fences stripped), fallback to every KB on an invalid reply, and
+    `LlmUnavailableError` propagating. Ethan approved the prompt with the plan.
+  - `generate(..., thinking=None)` on the provider interface, `UsageRecorder`, `GeminiLlm`
+    (`ThinkingConfig.thinking_level`) and `FakeLlm`. The router uses `low`; the answer step keeps
+    the model default.
+  - Corpus: 7 PDFs uploaded through `POST /documents` to the dev server, all `success` in 353 s
+    (chunks: Process_UserData 5, policiespyramidnew 2, utdbp3096 37, Pico 2 47, Pico W 50, RP2040
+    1,649, product guide 5). The RPi 5 product brief (52.9 MB) was rejected `file_too_large`.
+    `pico-datasheet.pdf` was already indexed, so it was skipped. MANIFEST.md has every file.
+  - Tests: 345 run, OK, 3 skipped, 0 expected failures (2 of 3 full runs). One full run had 1
+    error whose text wasn't captured, most likely the Chroma flake (Known issues). Ruff clean.
+  - Real Gemini, 5 of the 8 approved calls:
+    1. `/ask` route with `minimal` → 400 "Thinking level MINIMAL is not supported for this model".
+    2. Answer step with `minimal` → the same 400.
+    3. `/ask` route with `low` → OK, 28.5 s, 363 input and 28 output tokens. The routing result
+       wasn't printed (script bug).
+    4. The same `/ask`'s answer call (default thinking) → failed. The message was lost: the
+       script's `os._exit` didn't flush stdout.
+    5. Answer step alone (default thinking, "board dimensions") → 503, 503, 503 (retried), then
+       504 `DEADLINE_EXCEEDED` (not retried) → `LlmError`.
+    - Stopped there: Gemini was failing on the server side. No thinking comparison and no
+      policy or off-topic result were measured.
+  - New `docs/ROUTER_EXPLAINED.md`.
+
+- **2026-10-20 · Ethan + Claude · `ethan/f4-ask` · F4 plumbing.**
+  - Branched from `main` (`c48a584`, the merged stack). Checks at the start: 265 tests OK,
+    3 skipped; Ruff clean.
+  - Added `google-genai==2.28.0`. Ethan approved 2.31.0 with a fallback to the newest
+    release at least two weeks old; 2.31.0 was 6 days old, so 2.28.0 (2026-10-02).
+  - New `backend/app/agent/` package:
+    - LLM provider interface, `UsageRecorder` and `build_llm`.
+    - `GeminiLlm`: lazy client, temperature 0, AFC off, its own retries on 429/503 and network
+      errors, `LlmUnavailableError`, usage including thinking tokens.
+    - `AgentConfig` and the KB descriptions file `config/kb_descriptions.json` (name +
+      description per KB).
+    - The grounded answer step with Ethan's approved prompt (KB display names in the source
+      headers).
+    - The `route()` interface only (coach mode).
+  - `POST /ask`, plus `name` and `description` in `GET /kbs`. New canonical code
+    `llm_unavailable` (503 + `Retry-After: 30`), and `not_implemented` maps to 501.
+  - Tests: 330 run, OK, 3 skipped (opt-in model tests), 8 expected failures (the router
+    tests), in `.venv` and in a scratch venv built only from requirements.txt (`pip check`
+    clean). Ruff clean. The Chroma flake (Known issues) hit 2 of 32 looped runs of the API tests. New: `test_agent_llm.py`, `test_agent_gemini.py`,
+    `test_agent_config.py`, `test_agent_answer.py`, `test_agent_router.py`, `test_api_ask.py`,
+    and one error-model test.
+  - Manual runs:
+    - `models.list()` (no generation) confirmed the model names; default `gemini-3.8-flash`.
+    - Answer step with real dev-DB retrieval (bge-small, `hw_datasheets`, RRF top 10) and real
+      Gemini, 2 calls:
+      - "What are the board dimensions of the Pico?" → "51 × 21 mm and is 1 mm thick
+        [1][3][9]" (pages 7, 6-7, 4), 39.5 s.
+      - "What is the warranty period for the Pico?" → exactly the no-answer sentence,
+        `no_answer: true`, 8.8 s.
+      - Total 6,547 input and 555 output tokens.
+    - Real uvicorn: `/kbs` shows names and descriptions; `/ask` → 501 `not_implemented`
+      "route() (query routing) is not implemented yet".
 
 - **2026-10-20 · Ethan + Claude · `ethan/f3-retrieval` · merge argument checks (not committed).**
   - Ethan restored the `merge_ranked_lists` docstring and added ValueError checks for `k`
@@ -191,6 +300,22 @@ unless marked "(Claude, small call)".
 
 | Date | Decision | Choice | Alternatives ruled out (why) | Owner |
 |---|---|---|---|---|
+| 2026-10-22 | Coach mode during the MVP | Paused for `route()` and all remaining MVP work (F4-F6) until after the Oct 27 progress report, because of time. Claude implements `route()` to Ethan's design, and it's listed as AI-written. After Oct 27 coach mode resumes for F7-F9, and Ethan reviews and may rewrite `route()`. | Ethan writes `route()` before Oct 27 (not enough time with F5 and F6 left) | Ethan |
+| 2026-10-22 | Router design | LLM classification with a prompt built from `kb_descriptions`; rules: usually one KB, both only if the answer needs both, none if neither can answer; 4 few-shot examples (datasheet, policy, both, off-topic); reply `{"kb_ids": [...], "reason": "..."}`, fences stripped; an invalid reply (unparseable, wrong shape, unknown or duplicate id, more than 2) → every configured KB with `fallback: true`; `LlmUnavailableError` propagates | Embedding similarity to the KB descriptions (thresholds for off-topic and "both" can't be tuned without labeled data; see ROUTER_EXPLAINED.md) | Ethan |
+| 2026-10-22 | Router details | Few-shot examples are shown only if every KB they name is configured; returned ids are in config order; no repair of bad replies (an unknown id isn't fuzzy-matched) (Claude, small call) | Always show all 4 examples (would name KBs that aren't configured) | Ethan |
+| 2026-10-22 | Thinking control | `generate(..., thinking=None)` takes a level (`minimal`/`low`/`medium`/`high`) sent as Gemini's `thinking_level`; `None` = model default. Router: `low`, because `gemini-3.8-flash` rejects `minimal` (400). Answer step: model default until measured. (Claude, small call) | A token budget (`thinking_budget` is the Gemini 2.5 knob; Gemini 3 models take a level) | Ethan |
+| 2026-10-22 | Re-uploading `pico-datasheet.pdf` | Skipped: already `success` in the dev DB, and the duplicate policy is `allow`, so a second copy would put duplicate chunks into retrieval (Claude, small call) | Upload it again as asked (duplicate hits in the top 10) | Ethan |
+| 2026-10-20 | Grounding prompt (F4) | Ethan approved the system instruction and user-message layout in `agent_answer.py`, with two changes: the off-topic reply lists only the KB descriptions (no KB IDs), and source headers show a KB display name ("IT policies", "hardware datasheets") instead of the `kb_id`. The API response keeps `kb_id`. | | Ethan |
+| 2026-10-20 | KB descriptions location | Committed `config/kb_descriptions.json` with `name` and `description` per KB (`KB_DESCRIPTIONS_PATH` overrides it). A configured KB without an entry stops the app at startup. | `.env` variables (git-ignored, so every machine copies them by hand, and routing quality depends on them) | Ethan |
+| 2026-10-20 | Router reply format in tests | The router tests build every scripted LLM reply through one `routing_reply()` helper (JSON to start), which Ethan changes to match his format. The `route()` docstring doesn't fix a format. | A JSON reply format in the contract (takes the choice away from Ethan) | Ethan |
+| 2026-10-20 | F4 dependency | `google-genai==2.28.0` under "# LLM (F4)". 2.31.0 was approved with a fallback to the newest release at least two weeks old; 2.31.0 (2026-10-14) was 6 days old. | | Ethan |
+| 2026-10-20 | Default Gemini model | `gemini-3.8-flash`, the newest stable Flash in the key's `models.list()` on 2026-10-20, as a code default overridable by `GEMINI_MODEL` | `gemini-flash-latest` (an alias that moves without notice, so runs aren't reproducible) (Claude, small call) | Ethan |
+| 2026-10-22 | Default Gemini model and thinking | `gemini-3.5-flash-lite`, `minimal` thinking for the router and answer steps (`GEMINI_ROUTER_THINKING`, `GEMINI_ANSWER_THINKING`), per-attempt timeout 20 s (`GEMINI_TIMEOUT_SECONDS`). Measured: about 1 s per call, correct routing and answer; `/ask` 1.0-2.1 s. Replaces the 2026-10-20 default-model row and the router `low` setting. | `gemini-3.8-flash` (4 of 4 calls failed with 504/503 on 2026-10-22, 28-59 s when it did answer); `gemini-2.5-flash` with thinking off (404 for this key); thinking levels as code constants only (switching models would mean a code change to avoid the `minimal` 400) | Ethan |
+| 2026-10-22 | Rebuild the dev DB | Deleted the dev SQLite DB, Chroma and uploads and re-uploaded `data/corpus/`, so the RP2040 datasheet (removed from the corpus by Ethan) is out of retrieval | Measure on the old DB (RP2040 was 1,649 of 1,809 datasheet chunks); filter RP2040 hits in a scratch script (wouldn't cover the real `/ask`) | Ethan |
+| 2026-10-22 | Retrying Gemini 504 | 504 `DEADLINE_EXCEEDED` joins 429 and 503: retried, then `LlmUnavailableError` → `/ask` 503 `llm_unavailable` | Leave it a 500 (Gemini's own deadline is a transient server-side failure, and the UI should show "busy, try again") | Ethan |
+| 2026-10-20 | What the Gemini provider retries | 429, 503 and network errors (httpx transport errors), up to `LLM_MAX_RETRIES` (3) with 2/4/8 s backoff plus up to 1 s jitter, then `LlmUnavailableError`. Other API errors fail at once as `LlmError` (→ 500). The SDK's own retries stay off (its default). | 429 only (Gemini's "model overloaded" is a 503, and retrying it is just as harmless) (Claude, small call) | Ethan |
+| 2026-10-20 | `/ask` error mapping | `route()` NotImplementedError → 501 `not_implemented`; `LlmUnavailableError` at any step → 503 `llm_unavailable` with `Retry-After: 30`; other `LlmError` → 500 without provider details; a `route()` result that breaks its contract (not a dict, unknown or duplicate KB, more than 2, wrong types) → logged 500 | Trust `route()`'s output (a bug in it would surface as a confusing KeyError or a search of an unknown KB) (Claude, small call) | Ethan |
+| 2026-10-20 | `/ask` answer details | Merged top 10 into the prompt; no hits → the no-answer sentence without an LLM call; `no_answer` only when the reply is the no-answer sentence alone; every prompted chunk is returned as a numbered source with `cited` (its [n] appears in the answer) and a 300-character snippet; usage counts thinking tokens as output and covers the route and answer calls through a `UsageRecorder` wrapper | Return only cited sources (hides what the model saw) (Claude, small call) | Ethan |
 | 2026-10-20 | Merge argument checks | `merge_ranked_lists` raises ValueError for `k <= 0` or a non-numeric `k`, and for a `top_n` that isn't a positive integer (floats, numeric strings and bools included), even on empty input | Trust the callers (`/search` validates `top_n`, but F4's `/ask` calls the function directly) | Ethan |
 | 2026-10-20 | Repeated chunk within one ranked list (review item 3) | No check: the Retriever returns each chunk at most once per list, and the docstring states it as a precondition. A repeat would be counted twice. | Count a repeated chunk once (defends against a caller bug that can't happen today) | Ethan |
 | 2026-10-20 | Copying hit fields into the fused hit (review item 4) | Keep the deny-list (every field except `rank`, `score`, `source` is copied). The test's exact field set catches a new field leaking through. | Allow-list of the documented fields (immune to new hit fields, but has to be updated when the contract grows) | Ethan |
@@ -257,6 +382,25 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
 
 ## Known issues
 
+- *(Fixed 2026-10-22)* A Gemini 504 `DEADLINE_EXCEEDED` wasn't retried and became a 500. It is
+  now retried like a 503 and ends as 503 `llm_unavailable`.
+- `gemini-3.8-flash` rejects thinking level `minimal` (400). The default model is now
+  `gemini-3.5-flash-lite`, which accepts it. Anyone who sets `GEMINI_MODEL=gemini-3.8-flash` must
+  also set `GEMINI_ROUTER_THINKING=low` and `GEMINI_ANSWER_THINKING=low`, or every `/ask` returns 500.
+- The Gemini SDK appears to send the client timeout to the server as the request deadline: the
+  504s on 2026-10-22 came at about 59 s with a 60 s timeout. Not verified in the SDK source. With
+  the 20 s timeout, a call slower than 20 s becomes a retried 504.
+- `gemini-2.5-flash` appears in `models.list()` but returns 404 "no longer available to new users"
+  for this key. Don't pick a model from the list alone.
+- `AskApiTestCase` builds its app with the default `AgentConfig()`, which reads `.env`. If someone
+  sets `GEMINI_ROUTER_THINKING` or `GEMINI_ANSWER_THINKING` in `.env`, the thinking assertions in
+  `test_api_ask.py` would fail. Nobody sets them today.
+- With 3 or more configured KBs, the router's fallback ("every configured KB") would exceed the
+  2-KB cap, and `/ask`'s `_checked_routing` would return 500. Not reachable with 2 KBs.
+- `RP-008348-DS-8-raspberry-pi-5-product-brief.pdf` (52.9 MB) is over the 25 MB upload limit,
+  so it isn't indexed.
+- *(Resolved 2026-10-22)* The RP2040 datasheet was removed from the corpus, and the dev DB was
+  rebuilt without it (`hw_datasheets`: 160 chunks).
 - **Rare, unexplained Chroma error in tests:** `chromadb.errors.InternalError: Error
   executing plan: Internal error: Error finding id` from `collection.query`.
   - Seen once in 11 full-suite runs, and about 5 times in ~1,000 looped runs of the
@@ -266,12 +410,17 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
   - Once it happens, an immediate retry fails too.
   - It never reproduced in standalone Chroma scripts (fresh or reset ephemeral client,
     fresh persistent client, 3,800 queries).
+  - F4: 2 failures in 32 looped runs of the API test files (7 of `test_api_ask.py` alone, 25 of
+    all `test_api_*.py`), both in `/ask` tests. They query more KBs per test, so the flake
+    shows up more often.
   - Not seen on the real server. If it does show up there, `/search` returns a canonical
     500 `internal_failure`.
   - If the suite fails with this error, re-run it. If it gets more frequent or shows up on
     the dev DB, consider a chromadb upgrade (a dependency change, so ask first).
 - `merge_ranked_lists` accepts a NaN or infinite `k` (NaN makes every score NaN; infinity
   makes every score 0). Not reachable from `/search`, which doesn't expose `k`.
+- `/ask` makes 2 LLM calls (route + answer); off-topic makes 1. On `gemini-3.5-flash-lite` with
+  `minimal` thinking, it took 1.0-2.1 s with 0 thinking tokens (2026-10-22).
 - *(Fixed in F3)* Vector hits could include documents not in `success`. `/search` and the
   Retriever now filter them out.
 - The API keeps one Chroma PersistentClient open for its lifetime and never calls
@@ -320,8 +469,11 @@ For Erynn:
 4. Will you build the F5 Streamlit UI? F1's API contract is in SPEC.md section 2 and at
    `/docs`. *Recommendation:* review the endpoints and the F1 changes to your modules
    (listed in the F1 session summary) before F5.
-5. The stack of four unmerged branches is growing. *Recommendation:* review and merge
-   it into `main` soon, oldest first, so new work bases on `main` again.
+5. F4 changed two shared things: `GET /kbs` entries gained `name` and `description`, and the
+   error model gained `llm_unavailable` (503). `/ask`'s response shape is in SPEC section 2
+   for the F5 Ask page. *Recommendation:* show `answer`, the `cited` sources first, the
+   routed KB names, a "routing fell back to all KBs" note when `routing_fallback` is true, and a
+   "busy, try again" state for 503.
 
 For Ethan:
 6. The old CLAUDE.md listed MCP as a consumer of the knowledge layer, but no feature
@@ -340,11 +492,15 @@ For Ethan:
 
 ## AI-written code
 
-Every file or function written or substantially changed by an AI assistant. Ethan's
-coach-mode code is never on this list.
+Every file or function written or substantially changed by an AI assistant. Ethan's own
+coach-mode code is never on this list. Coach-mode pieces Claude wrote while coach mode was
+paused (2026-10-22 decision) are.
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-22 | 504 in `RETRYABLE_STATUS_CODES` (`agent_gemini.py`); `_resolve_thinking`, `_resolve_timeout`, new defaults and fields in `agent_config.py`; timeout in `build_llm`; `ANSWER_THINKING` and the `thinking` argument of `answer_question`; `ROUTER_THINKING = "minimal"` and the `thinking` argument of **`route()`**; thinking wiring in `/ask` (`api_app.py`); `.env.example`; tests in `test_agent_gemini.py` (2 new), `test_api_ask.py` (2 new, scripted routers take `thinking`), `test_agent_config.py` (3 new, defaults extended), `test_agent_answer.py` (1 new), `test_agent_router.py` (1 new, `minimal` pinned), `test_agent_llm.py`; SPEC and ROUTER_EXPLAINED edits | Claude Code | Ethan (to review) | F4 reliability follow-up |
+| 2026-10-22 | **`route()`** and the rest of `backend/app/agent/agent_router.py` (routing prompt, examples, `build_routing_instruction`, `parse_routing_reply`); per-call `thinking` in `agent_llm.py` (`THINKING_LEVELS`, `check_thinking`, `UsageRecorder`) and `agent_gemini.py`; `FakeLlm.thinking_levels`; tests in `test_agent_router.py` (decorators removed, 11 new), `test_agent_gemini.py` (2 new), `test_agent_llm.py` (1 new), `test_api_ask.py` (501 test now patches `route`, 1 new real-router test); `docs/ROUTER_EXPLAINED.md`; MANIFEST rows; AGENTS.md and SPEC.md edits | Claude Code | Ethan (to review after Oct 27; may rewrite `route()`) | F4 routing, a coach-mode piece built while coach mode was paused |
+| 2026-10-20 | `backend/app/agent/agent_llm.py`, `agent_gemini.py`, `agent_config.py`, `agent_answer.py`, `agent_router.py` (the interface and docstring only; the body will be Ethan's); `config/kb_descriptions.json`; `POST /ask`, `AskRequest`, `_checked_routing`, the `/kbs` name and description, and the agent wiring in `api_app.py`; `Retry-After` support and the 501/503 mappings in `api_errors.py`; `llm_unavailable` in the error model; tests `agent_fakes.py`, `test_agent_llm.py`, `test_agent_gemini.py`, `test_agent_config.py`, `test_agent_answer.py`, `test_agent_router.py`, `test_api_ask.py`, plus one test in `test_ingestion_error_model.py`; the requirements.txt LLM group; `.env.example` | Claude Code | Ethan (to review) | F4 plumbing |
 | 2026-10-20 | `test_retrieval_merge.py`: `TestMergeArgumentValidation`, decorator cleanup, module docstring. Not on this list: the argument checks in `merge_ranked_lists`, which Ethan wrote | Claude Code | Ethan (to review) | F3 RRF follow-up |
 | 2026-10-20 | `test_api_search.py`: split the merge test into a real-merge test and a patched not-implemented test, with shared helpers | Claude Code | Ethan (to review) | F3 RRF. Not on this list: the `merge_ranked_lists` body, which Ethan wrote (coach mode) |
 | 2026-10-20 | `backend/app/retrieval/retrieval_config.py`, `retrieval_retriever.py`, `retrieval_merge.py` (the interface only: signature, constants and the original docstring; the `merge_ranked_lists` body is Ethan's, not AI-written); `POST /search`, `SearchRequest` and retriever wiring in `api_app.py`; `document_ids` filter in `ChromaVectorIndex.query`; `list_success_document_ids` and `get_chunk_hits` in the artifact repository; `not_implemented` in the error model; tests `test_retrieval_retriever.py`, `test_retrieval_config.py`, `test_retrieval_merge.py`, `test_api_search.py`, plus additions to `test_indexing_vector_index.py` and `test_ingestion_error_model.py` | Claude Code | Ethan (to review) | F3 |

@@ -16,7 +16,9 @@ from ingestion.ingestion_error_model import (
     ERROR_DUPLICATE_BLOCKED,
     ERROR_FILE_TOO_LARGE,
     ERROR_INTERNAL_FAILURE,
+    ERROR_LLM_UNAVAILABLE,
     ERROR_NOT_FOUND,
+    ERROR_NOT_IMPLEMENTED,
     ERROR_UNKNOWN_KB,
     ERROR_UNREADABLE_FILE,
     ERROR_UNSUPPORTED_FORMAT,
@@ -36,6 +38,8 @@ HTTP_STATUS_BY_CODE = {
     ERROR_NOT_FOUND: 404,
     ERROR_DUPLICATE_BLOCKED: 409,
     ERROR_FILE_TOO_LARGE: 413,
+    ERROR_NOT_IMPLEMENTED: 501,
+    ERROR_LLM_UNAVAILABLE: 503,
 }
 
 # Framework HTTP errors (unknown route, wrong method, oversize body) keep their
@@ -46,6 +50,10 @@ CODE_BY_HTTP_STATUS = {
 }
 
 
+# Clients wait this long before retrying an llm_unavailable (503) response.
+LLM_RETRY_AFTER_SECONDS = 30
+
+
 def http_status_for(error_code):
     return HTTP_STATUS_BY_CODE.get(error_code, 500)
 
@@ -53,10 +61,11 @@ def http_status_for(error_code):
 class ApiError(Exception):
     """Raise from a route with a canonical error dict; the handler sends it."""
 
-    def __init__(self, error, status_code=None):
+    def __init__(self, error, status_code=None, headers=None):
         super(ApiError, self).__init__(error.get("details") or error["code"])
         self.error = error
         self.status_code = status_code if status_code is not None else http_status_for(error["code"])
+        self.headers = headers
 
 
 def error_response(error, status_code=None, headers=None):
@@ -69,7 +78,7 @@ def error_response(error, status_code=None, headers=None):
 
 
 def _api_error_handler(request, exc):
-    return error_response(exc.error, exc.status_code)
+    return error_response(exc.error, exc.status_code, exc.headers)
 
 
 def _http_exception_handler(request, exc):

@@ -62,6 +62,13 @@ handling, scripts and tests.
 - the hybrid merge (RRF) and re-ranking
 - query routing in the Knowledge Agent
 
+**Pause (decided by Ethan, 2026-10-22, because of time):** coach mode is paused for
+query routing (`route()`) and all remaining MVP work (F4-F6) until after the Oct 27
+progress report. Until then Claude builds those pieces like plumbing and lists them in
+PROGRESS.md's AI-written code list. After Oct 27, coach mode resumes for F7-F9 (re-ranking,
+the Table Challenge, the strategy recommendation), and Ethan reviews and may rewrite
+`route()`. `docs/ROUTER_EXPLAINED.md` is his starting point for that.
+
 For a coach-mode piece:
 - Never write the implementation, even if asked casually mid-task. If a request
   would implement one of these, point that out and offer coaching instead.
