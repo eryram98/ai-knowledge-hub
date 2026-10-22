@@ -10,6 +10,32 @@ entries go at the top of the "Session log (archived)" section below this line.
 
 New entries go here, newest first. The snapshot below keeps its own older session log.
 
+### 2026-10-22: F6 build (branch `ethan/f6-demo`)
+
+- Built the seed and eval scripts, the 8-question eval set and `docs/DEMO_SCRIPT.md`. Checks on `main` before the work:
+  354 backend tests OK (3 skipped), 40 UI tests OK, Ruff clean.
+- Table probes (no baseline failure found): Pico Popcorn Table 1 average at 85 C, board 2 -> 89.8 mA (correct, 79 s);
+  mean maximum at 25 C -> 91.6 mA (correct, 75 s); product guide RP2040 memory and processor -> 264KB, Cortex-M0+ (correct, 29 s).
+  The baseline chunks do flatten tables to one value per line and start mid-word.
+- Calls made while probing: 6 LLM calls (3 `/ask`). The API I started for the probes was stopped.
+- Seed on the real API (about 14:30): wiped, 7 of 8 files `success` in 67 s, RPi 5 brief `file_too_large`.
+- Eval run 14:36:08-14:36:32 (commit `0ec3924` plus the F6 files): routing 8/8, hit@5 6/7, 24,624 tokens, per-question
+  13.0, 1.7, 1.7, 1.4, 1.8, 1.9, 2.0, 1.7 s. q04 missed. Raw file: `data/eval/runs/eval_20261022_143634.json` (git-ignored).
+
+Low-priority known issues moved out of PROGRESS.md on 2026-10-22 (still true):
+
+- Starlette warns that `httpx` with TestClient is deprecated (suggests `httpx2`).
+- The Linux torch instructions in SPEC §2 are untested.
+- `EmbeddingStage`/`IndexingStage` in `ingestion_stage_contracts.py` are unused.
+- Loading bge-small online prints an HF Hub warning; `HF_HUB_OFFLINE=1` stops it.
+
+F5 decision lines moved out of PROGRESS.md on 2026-10-22:
+
+- **F5 dependency:** `streamlit==1.65.0`; the UI's HTTP client is the already-pinned `httpx`.
+- **F5 layout:** top-level `ui/` with pages in `ui/views/`, its own `ui/tests` check, and an AST test that bans backend imports.
+- **F5 polling:** the status table refreshes every 2 s only while a document is queued or processing (an app rerun switches it on or off).
+- **F5 settings:** `.streamlit/config.toml` turns usage stats off and sets `maxUploadSize = 25` to match `INGESTION_MAX_FILE_SIZE_MB`.
+
 ---
 # PROGRESS: running log
 

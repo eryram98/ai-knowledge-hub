@@ -6,18 +6,16 @@ it unless you need that detail, and then Grep it.
 
 ## Now
 
-- **Branch:** F0-F4 merged into `main` (PRs #4-#6, `eba0e60`). `ethan/f5-ui` is local-only, from `eba0e60`.
-- **Current feature:** F5 done (`3e557c8`), checked with screenshots against the real API and Gemini.
-- **Next:** (1) Ethan pushes `ethan/f5-ui` and opens the F5 PR for Erynn. (2) F6: seed script, eval
-  set and script, demo script, fallbacks. The dev DB already matches `data/corpus/`.
-- **Ethan by hand:** upload a small TXT on the Documents page and watch Queued → Processing → Ready
-  with the 2 s refresh stopping at the end (copy `backend/instance/` first to keep the seeded
-  state); open a source card on Ask; stop the API and ask to see the start-command error. Fill
-  in the blank URLs in `data/corpus/MANIFEST.md`; your `.env` line 11 points at the deleted
-  `docs/decisions.md`.
+- **Branch:** `ethan/f6-demo`, local-only, from `main` (`0ec3924`, F0-F5 merged). F6 committed at the end of this session.
+- **Current feature:** F6 done: seed ran on the real API (7 of 8 files indexed, the RPi 5 brief rejected), eval ran once
+  (routing 100%, hit@5 86%, see the table below). `scripts/`, `data/eval/eval_set.jsonl`, `docs/DEMO_SCRIPT.md`.
+- **Next:** (1) Ethan pushes `ethan/f6-demo` and opens the F6 PR. (2) Record the backup video and screenshots; rehearse
+  `docs/DEMO_SCRIPT.md` twice, including the q04 table step. (3) Fill in the blank MANIFEST URLs. (4) After Oct 27: F7 re-ranking.
+- **Ethan by hand:** upload a small TXT on the Documents page (`backend/instance_backup/` is your copy); stop the API
+  and ask to see the start-command error. Your `.env` line 11 points at the deleted `docs/decisions.md`.
 - **Countdown (2026-10-22):** 5 days to the progress demo (2026-10-27), 47 to the final (2026-12-08).
   At risk:
-  1. F6 remains. If a day is lost, cut the eval script to routing accuracy only.
+  1. Demo rehearsal and the backup video remain.
   2. Gemini latency varies: `/ask` took 1-2 s in the morning but 6-29 s that night with no
      retries. Warm up with one question before the demo (it also loads bge-small, about 10 s).
   3. Free-tier quota: each `/ask` is 2 calls (off-topic 1); the F6 eval is about 16 calls.
@@ -35,7 +33,7 @@ it unless you need that detail, and then Grep it.
 | F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Done | `ethan/f3-retrieval` | `2b0566e`, `c6bddbe`, `6123769` |
 | F4 | `/ask`: routing (Claude to Ethan's design), grounded Gemini answer, sources | Done | `ethan/f4-ask` | `1aa5866`, `8f8f8cd`, `4fe7ab2`, `79b878e` (PR #6) |
 | F5 | Streamlit UI: Documents and Ask pages | Done | `ethan/f5-ui` | `3e557c8` |
-| F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | To do | | |
+| F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | Done (video not recorded) | `ethan/f6-demo` | this commit |
 | F7 | Re-ranking (coach) | After Oct 27 | | |
 | F8 | Table Challenge (coach) | After Oct 27 | | |
 | F9 | Strategy recommendation (coach) | After Oct 27 | | |
@@ -56,11 +54,10 @@ Earlier work (tasks 1-3 by Erynn, extraction, chunking, kb_id) and the old task-
 - **Data:** public documents only in `data/corpus/<kb_id>/` (git-ignored), with `MANIFEST.md` committed; eval set at `data/eval/eval_set.jsonl`.
 - **KBs:** `it_policies` and `hw_datasheets`, config-driven, topics pending PM confirmation; names and descriptions in `config/kb_descriptions.json`.
 - **Workflow:** AGENTS.md rules, SPEC.md as the source of truth, `ethan/<feature>` branches off `main`, ask before push, merge or PR. Repo lives in `C:\dev` (not OneDrive).
-- **F5 dependency:** `streamlit==1.65.0`; the UI's HTTP client is the already-pinned `httpx`.
-- **F5 layout:** top-level `ui/` with pages in `ui/views/`, its own `ui/tests` check, and an AST test that bans backend imports.
-- **F5 polling:** the status table refreshes every 2 s only while a document is queued or processing (an app rerun switches it on or off).
-- **F5 settings:** `.streamlit/config.toml` turns usage stats off and sets `maxUploadSize = 25` to match `INGESTION_MAX_FILE_SIZE_MB`.
+- **F5 (details in the archive):** `streamlit==1.65.0`; `ui/` is an HTTP-only client with its own tests; the status table polls every 2 s only while needed; `.streamlit/config.toml` sets 25 MB and no usage stats.
 - **F5 Ask page:** latency measured in the UI; every source shown, cited first; `$` escaped; 180 s `/ask` timeout.
+- **F6 scripts:** `scripts/` reuses `ui/ui_api_client.py` over HTTP. Seed asks before wiping, refuses while an API runs, and exits 1 only on a `failed` document (a rejected file is listed). Eval asks before the LLM calls.
+- **F6 metrics:** routing correct = routed set equals expected (`none` = empty, so a fallback to all KBs is wrong); hit@5 = every expected source among the first 5 sources, over on-topic questions only.
 - **Model:** `gemini-3.5-flash-lite`, `minimal` thinking for both steps (`generate(..., thinking=)` sends Gemini's `thinking_level`), 20 s per-attempt timeout, all overridable in `.env`.
 - **LLM retries:** 429, 503, 504 and network errors, `LLM_MAX_RETRIES` (3) with 2/4/8 s backoff, then 503 `llm_unavailable` with `Retry-After: 30`.
 - **Router:** LLM classification from the KB descriptions with 4 few-shots and a JSON reply; an invalid reply falls back to every KB; examples only for configured KBs; no repair of bad ids.
@@ -90,17 +87,15 @@ Earlier work (tasks 1-3 by Erynn, extraction, chunking, kb_id) and the old task-
 - `merge_ranked_lists` accepts a NaN or infinite `k` (not reachable from `/search`).
 - The RPi 5 product brief (52.9 MB) is over the 25 MB limit, so it isn't indexed.
 - The API never closes its Chroma client, so the Chroma directory can't be deleted while it runs.
-- Loading bge-small online prints an HF Hub warning; `HF_HUB_OFFLINE=1` stops it.
-- `EmbeddingStage`/`IndexingStage` in `ingestion_stage_contracts.py` are unused.
-- Starlette warns that `httpx` with TestClient is deprecated (suggests `httpx2`).
 - `test_task1_ingestion_core.py` has `# ... existing code ...` markers and one test (since `294b052`).
 - The in-memory queue isn't durable: an interrupted document must be re-uploaded.
 - The upload size cap is per request (about 501 MB by default); the per-file limit applies while copying.
 - The global Python has drifted from the pins (always use `.venv\Scripts\python`). Module headers say "Python 3.6 compatible" and `.idea/misc.xml` points at 3.6; fix headers when touching files.
-- The Linux torch instructions in SPEC §2 are untested.
 - UI: the KB table on Documents refreshes only on a full rerun; the status table refreshes every 2 s while needed.
 - UI: `ui/ui_messages.py` copies the error codes, so a new code needs a line there (otherwise the API's message shows).
 - UI: `.streamlit/config.toml` is read only when Streamlit starts from the repo root, and its 25 MB must match `INGESTION_MAX_FILE_SIZE_MB`.
+- q04 (approvers table in `Process_UserData.pdf`) misses hit@5 and gets the no-answer reply (one run, 2026-10-22): the table-heavy short document loses to the long policy. Demo step 5 uses it; F8 and F7 should move it. Three other table questions answered correctly.
+- Latency by time of day (2026-10-22): `/ask` 29-79 s at about 11:30, 1.4-2.0 s at 14:36 (first question 13 s, model load). Cause unconfirmed.
 - `/ask` snippets can start mid-word (overlapping chunks); cosmetic.
 - Expected test noise: pypdf "invalid pdf header"/"EOF marker" lines and Streamlit "missing ScriptRunContext" warnings.
 
@@ -122,7 +117,7 @@ For Ethan:
 
 | Date | Commit | Eval set size | Routing accuracy | Hit@5 | Faithfulness | Notes |
 |---|---|---|---|---|---|---|
-| | | | | | | No runs yet. The first run is in F6. |
+| 2026-10-22 | 0ec3924-dirty | 8 | 100% (8/8) | 86% (6/7) | not run | 24624 tokens; latency median 1.8 s, max 13.0 s; asked 14:36:08-14:36:32 local; q04 missed: top 5 were all `policy-utdbp3096.pdf`, so no-answer |
 
 ## AI-written code
 
@@ -131,6 +126,7 @@ code is never on this list; coach pieces Claude wrote while coach mode was pause
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-22 | `scripts/` (`demo_common`, `seed_corpus`, `run_eval`, 2 test files); `data/eval/eval_set.jsonl`; `docs/DEMO_SCRIPT.md`; `ApiClient.document_statuses` and its test; `ruff.toml`, `.gitignore`, AGENTS.md and SPEC.md check lines | Claude Code | Ethan (to review) | F6 |
 | 2026-10-22 | All of `ui/` (app, config, API client, messages, both views, 6 test files); `.streamlit/config.toml`; UI lines in `requirements.txt`, `.env.example`, `ruff.toml`; SPEC and AGENTS.md check edits; `/finish-feature` SKILL.md; this trim and `PROGRESS_ARCHIVE.md` | Claude Code | Ethan (to review), Erynn (PR) | F5 and docs |
 | 2026-10-22 | 504 retry (`agent_gemini.py`); thinking and timeout config (`agent_config.py`); `thinking` in `answer_question`, **`route()`** and `/ask`; `.env.example`; tests in 6 agent/API test files; SPEC and ROUTER_EXPLAINED edits | Claude Code | Ethan (to review) | F4 reliability follow-up |
 | 2026-10-22 | **`route()`** and the rest of `agent_router.py`; per-call `thinking` in `agent_llm.py` and `agent_gemini.py`; `FakeLlm.thinking_levels`; router, Gemini, LLM and `/ask` tests; `docs/ROUTER_EXPLAINED.md`; MANIFEST rows; AGENTS.md and SPEC edits | Claude Code | Ethan (after Oct 27; may rewrite `route()`) | F4 routing, coach piece built while paused |

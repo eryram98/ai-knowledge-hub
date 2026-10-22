@@ -9,3 +9,6 @@ select = ["E", "F"]
 # Test files put backend/app on sys.path before importing (AGENTS.md), so their
 # imports can't sit at the top of the module.
 "backend/tests/*" = ["E402"]
+# The demo scripts and their tests put their own folder (and ui/) on sys.path before importing.
+"scripts/*" = ["E402"]
+"scripts/tests/*" = ["E402"]

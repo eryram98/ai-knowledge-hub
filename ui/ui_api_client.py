@@ -51,6 +51,11 @@ class ApiClient:
         return self._request("POST", "/documents", ui_config.UPLOAD_TIMEOUT_SECONDS,
                              data={"kb_id": kb_id}, files=multipart)
 
+    def document_statuses(self, document_ids):
+        """Batch status for the given document IDs (counts, per-document status, is_complete)."""
+        params = [("document_id", document_id) for document_id in document_ids]
+        return self._request("GET", "/documents/status", ui_config.DEFAULT_TIMEOUT_SECONDS, params=params)
+
     def ask(self, question):
         return self._request("POST", "/ask", ui_config.ASK_TIMEOUT_SECONDS, json={"question": question})
 
