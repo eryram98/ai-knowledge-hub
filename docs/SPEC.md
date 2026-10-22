@@ -112,7 +112,11 @@ after 2, 4, 8 s plus jitter). The Gemini client is created on the first `/ask`, 
 starts without a key. KB display names and descriptions live in the committed
 `config/kb_descriptions.json` (`KB_DESCRIPTIONS_PATH` overrides it). A configured KB without an
 entry stops the app at startup. The grounding prompt is in `backend/app/agent/agent_answer.py`;
-Ethan approved it on 2026-10-20, so changing it needs his approval.
+Ethan approved it on 2026-10-20, so changing it needs his approval. The routing prompt is in
+`backend/app/agent/agent_router.py` (Ethan's design, approved 2026-10-22; same rule).
+`llm.generate(..., thinking=...)` takes a per-call thinking level (`None` for the model's default, or
+`minimal`, `low`, `medium`, `high`, sent as Gemini's `thinking_level`). The router uses `low`: `gemini-3.8-flash` rejects `minimal` with a 400.
+How routing works and why: `docs/ROUTER_EXPLAINED.md`.
 
 **API (F1).** Every error uses the canonical body `{code, message, details}` (plus
 `field` or `file_name` when relevant). Status codes: `unknown_kb`, `validation_failed`
@@ -177,7 +181,7 @@ question (UI/API) → router (which KB?) → per-KB vector + BM25 search
 | Retrieval plumbing | per-KB vector and keyword search returning separate ranked lists | No | Ethan | F3 |
 | Hybrid merge (RRF) | merge the two ranked lists | **Yes** | Ethan | F3 |
 | Re-ranking | re-rank the merged list | **Yes** | Ethan | F7 |
-| Query routing | pick the KB or KBs for a question | **Yes** | Ethan | F4 |
+| Query routing | pick the KB or KBs for a question | **Yes** (paused until after Oct 27; Claude wrote it to Ethan's design, Ethan reviews) | Ethan | F4 |
 | Agent and LLM | provider interface (Gemini by default), grounded prompt, no-answer path | No | Ethan | F4 |
 | API | FastAPI endpoints for upload, status, inventory and ask | No | Ethan | F1, F4 |
 | UI | Streamlit Documents and Ask pages | No | Erynn (likely) | F5 |
@@ -253,8 +257,9 @@ Each feature is sized for one session and ends with every check passing and a co
 **F4: Answer endpoint.**
 - *Done when:*
   - `POST /ask {question}` runs routing (a router interface plus tests written by
-    Claude; **routing logic by Ethan, coach mode**), then retrieval and merge for the
-    routed KBs, then the LLM provider.
+    Claude; routing logic written by Claude to Ethan's design, because coach mode is
+    paused until after Oct 27 (decided 2026-10-22); Ethan reviews and may rewrite it
+    after Oct 27), then retrieval and merge for the routed KBs, then the LLM provider.
   - The answer is grounded only in the retrieved chunks.
   - The response contains the answer, sources (document, page, KB, chunk), the routed
     KB or KBs, and a `no_answer` flag.

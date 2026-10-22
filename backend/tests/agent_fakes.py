@@ -13,7 +13,7 @@ if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
 from agent.agent_config import KbInfo
-from agent.agent_llm import LlmProvider, LlmResponse
+from agent.agent_llm import LlmProvider, LlmResponse, check_thinking
 
 FAKE_MODEL = "fake-llm"
 FAKE_INPUT_TOKENS = 100
@@ -27,7 +27,10 @@ KB_INFOS = {
 
 
 class FakeLlm(LlmProvider):
-    """Replies with the scripted texts (or raises the scripted exceptions); records (prompt, system_instruction)."""
+    """Replies with the scripted texts (or raises the scripted exceptions).
+
+    Records (prompt, system_instruction) in calls and each call's thinking level in thinking_levels.
+    """
 
     model_name = FAKE_MODEL
 
@@ -36,12 +39,15 @@ class FakeLlm(LlmProvider):
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.calls = []
+        self.thinking_levels = []
         self._lock = threading.Lock()
 
-    def generate(self, prompt, system_instruction=None):
+    def generate(self, prompt, system_instruction=None, thinking=None):
+        check_thinking(thinking)
         with self._lock:
             index = min(len(self.calls), len(self.replies) - 1)
             self.calls.append((prompt, system_instruction))
+            self.thinking_levels.append(thinking)
         reply = self.replies[index]
         if isinstance(reply, BaseException):
             raise reply

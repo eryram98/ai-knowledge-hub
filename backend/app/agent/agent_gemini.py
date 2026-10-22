@@ -19,7 +19,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
-from agent.agent_llm import LlmError, LlmProvider, LlmResponse, LlmUnavailableError
+from agent.agent_llm import LlmError, LlmProvider, LlmResponse, LlmUnavailableError, check_thinking
 
 LOGGER = logging.getLogger(__name__)
 
@@ -55,13 +55,16 @@ class GeminiLlm(LlmProvider):
                 )
             return self._client
 
-    def generate(self, prompt, system_instruction=None):
+    def generate(self, prompt, system_instruction=None, thinking=None):
+        thinking = check_thinking(thinking)
         client = self._get_client()
         # No tools are passed, so automatic function calling is off (it also silences the SDK's AFC notice).
         config = genai_types.GenerateContentConfig(
             system_instruction=system_instruction, temperature=0.0,
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
         )
+        if thinking is not None:
+            config.thinking_config = genai_types.ThinkingConfig(thinking_level=thinking.upper())
         attempts = self.max_retries + 1
         for attempt in range(attempts):
             try:

@@ -34,6 +34,13 @@ class TestUsageRecorder(unittest.TestCase):
             ],
         })
 
+    def test_thinking_level_is_forwarded(self):
+        llm = FakeLlm("one", "two")
+        recorder = UsageRecorder(llm)
+        recorder.generate("p1", thinking="minimal")
+        recorder.generate("p2")
+        self.assertEqual(llm.thinking_levels, ["minimal", None])
+
     def test_no_calls_means_zero_usage(self):
         self.assertEqual(UsageRecorder(FakeLlm()).usage(), {"input_tokens": 0, "output_tokens": 0, "calls": []})
 

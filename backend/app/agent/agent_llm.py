@@ -8,6 +8,9 @@ a real call.
 import threading
 from abc import ABC, abstractmethod
 
+# Per-call thinking levels; None leaves the model's default. Gemini 3 models take a level, not a token budget.
+THINKING_LEVELS = ("minimal", "low", "medium", "high")
+
 
 class LlmError(Exception):
     """The LLM call failed in a way retrying won't fix (bad request, auth, no key, unknown provider)."""
@@ -37,10 +40,11 @@ class LlmProvider(ABC):
     model_name = None
 
     @abstractmethod
-    def generate(self, prompt, system_instruction=None):
+    def generate(self, prompt, system_instruction=None, thinking=None):
         """Send one user prompt (plus an optional system instruction) and return an LlmResponse.
 
-        Raises LlmUnavailableError when the service stays rate-limited or
+        thinking is None (the model's default) or one of THINKING_LEVELS; any
+        other value is a ValueError. Raises LlmUnavailableError when the service stays rate-limited or
         unavailable, and LlmError for any other failure.
         """
 
@@ -59,8 +63,8 @@ class UsageRecorder(LlmProvider):
         self.calls = []
         self._lock = threading.Lock()
 
-    def generate(self, prompt, system_instruction=None):
-        response = self.llm.generate(prompt, system_instruction=system_instruction)
+    def generate(self, prompt, system_instruction=None, thinking=None):
+        response = self.llm.generate(prompt, system_instruction=system_instruction, thinking=thinking)
         with self._lock:
             self.calls.append({
                 "step": self.step,
@@ -79,6 +83,13 @@ class UsageRecorder(LlmProvider):
             "output_tokens": sum(call["output_tokens"] for call in calls),
             "calls": calls,
         }
+
+
+def check_thinking(thinking):
+    """Return thinking unchanged if it is None or one of THINKING_LEVELS; otherwise raise ValueError."""
+    if thinking is not None and thinking not in THINKING_LEVELS:
+        raise ValueError("thinking must be None or one of {0}, not {1!r}".format(THINKING_LEVELS, thinking))
+    return thinking
 
 
 def build_llm(agent_config):

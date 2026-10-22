@@ -1,7 +1,7 @@
 """POST /ask (F4) through TestClient: route -> retrieve -> merge -> grounded answer, plus /kbs descriptions.
 
-route() is Ethan's (coach mode), so these tests patch it with scripted
-routers, except the not-implemented test, which runs the real interface.
+Most tests patch route() with scripted routers, so they check /ask's own
+wiring; one test runs the real route() end to end with a FakeLlm JSON reply.
 Documents go through the real upload endpoint and worker (fake embedder,
 in-memory Chroma). The LLM is always a FakeLlm.
 """
@@ -117,6 +117,21 @@ class TestAskAnswers(AskApiTestCase):
         self.assertNotIn("passwords", prompt)  # the policy KB wasn't routed
         self.assertTrue(prompt.endswith("Question: " + DATASHEET_QUESTION))
 
+    def test_real_router_routes_from_a_json_reply_with_low_thinking(self):
+        self.llm.replies = ['{"kb_ids": ["hw_datasheets"], "reason": "A pinout question."}',
+                            "GPIO17 doubles as a UART pin [1]."]
+        with TestClient(self.app) as client:
+            self.ingest_both(client)
+            response = client.post("/ask", json={"question": DATASHEET_QUESTION})
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["kb_ids"], ["hw_datasheets"])
+        self.assertEqual(body["route_reason"], "A pinout question.")
+        self.assertFalse(body["routing_fallback"])
+        self.assertEqual(body["answer"], "GPIO17 doubles as a UART pin [1].")
+        self.assertEqual([call["step"] for call in body["usage"]["calls"]], ["route", "answer"])
+        self.assertEqual(self.llm.thinking_levels, ["low", None])
+
     def test_off_topic_question_lists_what_the_kbs_cover_without_retrieval_or_answer_call(self):
         with TestClient(self.app) as client:
             self.ingest_both(client)
@@ -168,8 +183,10 @@ class TestAskAnswers(AskApiTestCase):
 
 class TestAskErrors(AskApiTestCase):
     def test_router_not_implemented_is_501_without_an_llm_call(self):
-        with TestClient(self.app) as client:
-            response = client.post("/ask", json={"question": DATASHEET_QUESTION})
+        # route() exists now, so a stand-in raises NotImplementedError to keep the 501 mapping covered.
+        def not_implemented(question, kb_descriptions, llm):
+            raise NotImplementedError("route() is not implemented yet")
+        response = self.ask(not_implemented, ingest=False)
         body = self.assertCanonicalError(response, 501, "not_implemented")
         self.assertIn("route()", body["details"])
         self.assertEqual(self.llm.calls, [])

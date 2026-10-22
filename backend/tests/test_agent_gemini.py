@@ -68,7 +68,24 @@ class TestGeminiCall(GeminiTestCase):
         self.assertEqual(call["config"].system_instruction, "be grounded")
         self.assertEqual(call["config"].temperature, 0.0)
         self.assertTrue(call["config"].automatic_function_calling.disable)
+        self.assertIsNone(call["config"].thinking_config)  # no thinking argument: the model's default
         self.assertEqual(self.sleeps, [])
+
+    def test_thinking_level_is_sent_as_the_thinking_config(self):
+        for level, expected in (("minimal", genai_types.ThinkingLevel.MINIMAL),
+                                ("high", genai_types.ThinkingLevel.HIGH)):
+            with self.subTest(level=level):
+                llm = self.make_llm(gemini_response("hi"))
+                llm.generate("p", thinking=level)
+                self.assertEqual(self.client.models.calls[0]["config"].thinking_config.thinking_level, expected)
+
+    def test_unknown_thinking_level_is_a_value_error_without_a_call(self):
+        for level in ("none", "MINIMAL", 0, 1024):
+            with self.subTest(level=level):
+                llm = self.make_llm(gemini_response("hi"))
+                with self.assertRaises(ValueError):
+                    llm.generate("p", thinking=level)
+                self.assertEqual(self.client.models.calls, [])
 
     def test_usage_counts_thinking_tokens_as_output(self):
         response = self.make_llm(gemini_response(prompt_tokens=40, candidate_tokens=7, thought_tokens=30)).generate("p")
