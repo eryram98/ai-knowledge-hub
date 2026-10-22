@@ -4,29 +4,28 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 ## Now
 
-- **Branches:** the old stack (F0-F3) is merged into `main` (PRs #4 and #5, `c48a584`). New
-  branches base on `main`. `ethan/f4-ask` is pushed (tracks `origin/ethan/f4-ask`).
+- **Branches:** F0-F4 are merged into `main` (PRs #4, #5 and #6, `eba0e60`). New branches base on
+  `main`. `ethan/f5-ui` is local-only (from `eba0e60`).
 - **Coach mode is paused** for `route()` and the rest of the MVP (F4-F6) until after Oct 27
   (Ethan, 2026-10-22). It resumes for F7-F9, and Ethan reviews `route()` then
   (`docs/ROUTER_EXPLAINED.md`).
-- **Current feature:** F4 is done and verified end to end with real Gemini on `ethan/f4-ask`
-  (2026-10-22): default model `gemini-3.5-flash-lite`, `minimal` thinking for both steps, and all 3
-  real `/ask` checks passed in 1.0-2.1 s.
+- **Current feature:** F5 (Streamlit UI) is done on `ethan/f5-ui` (2026-10-22), checked with
+  screenshots against the real API and real Gemini. Next is F6.
 - **Next concrete steps:**
-  1. Ethan: push `ethan/f4-ask` and open the F4 PR for Erynn.
-  2. F5 (Streamlit, Erynn likely) and F6 (seed script, eval set, demo script). The dev DB was
-     rebuilt from `data/corpus/` on 2026-10-22 (no RP2040), so it already matches what the seed
-     script should produce.
-- **Ethan by hand:**
-  - Start the API (SPEC section 2) with `HF_HUB_OFFLINE=1`, open `http://127.0.0.1:8000/docs`,
-    and `POST /ask` with "What are the board dimensions of the Pico?". Expect `kb_ids:
-    ["hw_datasheets"]`, "51 × 21 mm, 1 mm thick PCB [3][8]", and `usage.calls` with a `route` and
-    an `answer` step on `gemini-3.5-flash-lite`.
-  - "Am I allowed to share my account password with another student?" Expect `kb_ids:
-    ["it_policies"]` and an answer citing `policy-utdbp3096.pdf` (Access Control: never disclose
-    your password).
-  - Ask "Who won the 1998 World Cup?". Expect `off_topic: true`, the message listing what the
-    KBs cover (descriptions, no KB IDs), and only one call in `usage.calls`.
+  1. Ethan: push `ethan/f5-ui` and open the F5 PR for Erynn.
+  2. F6: seed script, eval set, eval script, demo script, fallbacks. The dev DB already matches
+     `data/corpus/`.
+- **Ethan by hand (F5):**
+  - `pip install -r requirements.txt` (adds Streamlit, about 255 MB), start the API
+    (`HF_HUB_OFFLINE=1`), then `.venv\Scripts\python -m streamlit run ui\app.py` in a second
+    terminal. The browser opens `http://localhost:8501`.
+  - Documents: upload one small TXT into IT policies. Expect a "Last upload" table with "✅ Accepted",
+    then the row goes Queued → Processing → Ready by itself, with "Refreshing every 2 s" in the
+    caption. Once it's Ready, the caption drops that text, and the KB table counts update. Note
+    that the test file stays in the dev DB (and in retrieval) until you rebuild it, so copy
+    `backend/instance/` first if you want the seeded state back.
+  - Ask: the three questions from the F4 checks. Open a source card. Then stop the API and ask
+    again: expect a red error naming the uvicorn start command, not a crash.
   - Fill in the blank URLs in `data/corpus/MANIFEST.md`.
   - Your `.env` comment on line 11 still points at the deleted `docs/decisions.md`.
 
@@ -34,7 +33,8 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 
 - **5 days to the progress demo (2026-10-27). 47 days to the final demo (2026-12-08).**
 - At risk:
-  1. F5 and F6 remain. If a day is lost, cut F6's eval script down to routing accuracy only.
+  1. F6 remains (F5 done 2026-10-22). If a day is lost, cut F6's eval script down to routing
+     accuracy only.
   2. Gemini reliability: on 2026-10-22, `gemini-3.8-flash` failed every call (504s at about 59 s
      and one 503), while `gemini-3.5-flash-lite` answered every call in about 1 s. Flash-Lite
      quality is checked on only 3 questions so far (F6's eval set will tell more). Fallback: set
@@ -43,9 +43,12 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
   3. Gemini free-tier quotas during rehearsal and the demo. Every `/ask` makes 2 LLM calls
      (route + answer), so the F6 eval run of 8 questions is about 16 calls. A 429 is retried
      3 times (about 15 s), then `/ask` returns 503.
-  4. Gemini latency: with Flash-Lite and `minimal` thinking, `/ask` took 2.1 s (datasheet), 1.6 s
-     (policy) and 1.0 s (off-topic) on 2026-10-22. The per-attempt timeout is 20 s, so the worst
-     case with 3 retries is about 1.5 min per step. Measure again on the demo laptop.
+  4. Gemini latency varies a lot. With Flash-Lite and `minimal` thinking, `/ask` took 1.0-2.1 s
+     earlier on 2026-10-22, but 6-29 s in the F5 run later that night with no retries (a direct
+     off-topic `/ask`, one LLM call, took 7.2 s). The per-attempt timeout is 20 s, so the worst
+     case with 3 retries is about 1.5 min per step. The UI waits up to 180 s. Measure again on
+     the demo laptop, and warm up with one question before the demo (the first one also loads
+     bge-small, about 10 s).
   5. The F2 install is 1.3 GB and bge-small is a 128 MB download. Install and cache both on the
      demo laptop well before the demo, then use `HF_HUB_OFFLINE=1`.
   6. Baseline retrieval on the datasheet is weak for some questions (fixed 1000-character
@@ -60,8 +63,8 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 | F1 | HTTP API (+ Ruff, slim FastAPI, real KB IDs) | Done | `ethan/f1-api` | `1693e82`, `f077c3c`, `4e7eae5` (chores), `1aeffe8`, `c1df404` |
 | F2 | Indexing: bge-small, Chroma and BM25 per KB | Done | `ethan/f2-indexing` | `a922552` |
 | F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Done | `ethan/f3-retrieval` | `2b0566e`, this commit (RRF) |
-| F4 | `/ask`: routing (Claude to Ethan's design; coach mode paused), grounded Gemini answer, sources | Done (verified with real Gemini) | `ethan/f4-ask` | `1aa5866`, `8f8f8cd`, `4fe7ab2`, this commit |
-| F5 | Streamlit UI: Documents and Ask pages | To do (Erynn likely) | | |
+| F4 | `/ask`: routing (Claude to Ethan's design; coach mode paused), grounded Gemini answer, sources | Done (verified with real Gemini) | `ethan/f4-ask` | `1aa5866`, `8f8f8cd`, `4fe7ab2`, `79b878e` (merged, PR #6) |
+| F5 | Streamlit UI: Documents and Ask pages | Done (screenshots with the real API) | `ethan/f5-ui` | this commit |
 | F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | To do | | |
 | F7 | Re-ranking (coach) | After Oct 27 | | |
 | F8 | Table Challenge (coach) | After Oct 27 | | |
@@ -100,6 +103,37 @@ Newest first. Old detail gets summarized. Scope and "Done when" live in `docs/SP
 | 8.11 manual retry hooks | Deferred, not scheduled |
 
 ## Session log
+
+- **2026-10-22 (3) · Ethan + Claude · `ethan/f5-ui` · F5 Streamlit UI.**
+  - Start: `main` clean and up to date with `origin/main` (`eba0e60`). Backend tests: run 1 had
+    354 run, 1 error, 3 skipped (traceback not captured; most likely the Chroma flake), run 2
+    354 OK, 3 skipped. Ruff clean.
+  - Added `streamlit==1.65.0` (Ethan approved with the plan). It adds 255 MB to `.venv`, and
+    `pip check` is clean.
+  - New `ui/`: `app.py` (`st.navigation`), `ui_config.py`, `ui_api_client.py` (httpx),
+    `ui_messages.py`, `views/documents.py`, `views/ask.py`, and `ui/tests/` (5 files, 40 tests).
+    Also `.streamlit/config.toml` (usage stats off, 25 MB upload limit).
+  - New checks: `unittest discover -s ui\tests` (it includes the headless smoke test) and
+    `ruff check backend ui` (AGENTS.md, SPEC §2).
+  - Checks at the end: backend 354 OK, 3 skipped (2 of 2 runs). UI 40 OK. Ruff clean.
+  - Real run: API on the dev DB (`HF_HUB_OFFLINE=1`) and Streamlit. Headless Chrome was driven
+    over the DevTools protocol by a scratch script (not in the repo) that typed the question and
+    clicked Ask. 6 LLM calls in all.
+    - Documents: both KBs (3 + 4 documents, all Ready), the picker with descriptions, the
+      uploader, and the status table.
+    - Ask, Pico dimensions: routed to hardware datasheets, "51 × 21 mm, 1 mm thick PCB [3][8]",
+      cited sources [3] and [8] listed first, 3,593 in / 56 out, 2 calls. Latency 29.1 s,
+      including the first bge-small load.
+    - Ask, password sharing: routed to IT policies, "No ... never disclose their account
+      password ... [1]", policy-utdbp3096.pdf p. 8 cited, 17.1 s.
+    - Ask, 1998 World Cup: the Off-topic badge, "Routed to no knowledge base", the KB-coverage
+      answer, 1 call, 6.2 s. A direct `/ask` for the same question took 7.2 s, so the slowness
+      is Gemini, not the UI. No retries showed in the API log.
+    - Fixed after the first screenshots: the uploader said "200MB per file" (now 25 MB, matching
+      the API default), and two buttons were both labeled "Upload" (the form's is now "Add files
+      to <KB>").
+    - Not exercised in the real run: an upload, polling, the busy and connection-error states.
+      The tests cover them with a fake client.
 
 - **2026-10-22 (2) · Ethan + Claude · `ethan/f4-ask` · 504 retry, model choice, real `/ask` check.**
   - Start: clean tree, up to date with `origin/ethan/f4-ask`. 345 tests OK, 3 skipped; Ruff
@@ -300,6 +334,12 @@ unless marked "(Claude, small call)".
 
 | Date | Decision | Choice | Alternatives ruled out (why) | Owner |
 |---|---|---|---|---|
+| 2026-10-22 | F5 dependency | `streamlit==1.65.0` under "# UI (F5)" (2026-10-02; 1.66.0 and 1.66.1 were 8 days and 1 day old). The UI's HTTP client is the already-pinned `httpx`. | `requests` (one more direct dependency for the same job) | Ethan |
+| 2026-10-22 | UI layout and tests | Top-level `ui/` with pages in `ui/views/` (`st.navigation`, not the automatic `pages/` folder), its own `ui/tests` run as a separate check, and an AST test that no `ui/` file imports a backend package (Claude, small call) | UI tests under `backend/tests` (would mix the two `sys.path` setups) | Ethan |
+| 2026-10-22 | Status polling | The fragment refreshes every 2 s only while a document of the selected KB is queued or processing. Because `run_every` is fixed when the fragment is defined, a change in that state reruns the app once. (Claude, small call) | Always poll every 2 s (constant API traffic and a flickering page during the demo) | Ethan |
+| 2026-10-22 | Streamlit settings | `.streamlit/config.toml`: usage statistics off (no telemetry to Streamlit) and `maxUploadSize = 25` to match `INGESTION_MAX_FILE_SIZE_MB` (Claude, small call) | Streamlit's default 200 MB (the uploader would promise a limit the API rejects) | Ethan |
+| 2026-10-22 | Ask page details | The latency is measured in the UI (the API doesn't return it). Every source the model saw is shown, cited first. `$` is escaped so answers aren't rendered as LaTeX. The `/ask` timeout is 180 s. (Claude, small call) | Show only cited sources (hides what the model saw; same reasoning as the F4 decision) | Ethan |
+| 2026-10-22 | UI owner | Ethan (built by Claude) instead of Erynn, at Ethan's request for the demo | | Ethan |
 | 2026-10-22 | Coach mode during the MVP | Paused for `route()` and all remaining MVP work (F4-F6) until after the Oct 27 progress report, because of time. Claude implements `route()` to Ethan's design, and it's listed as AI-written. After Oct 27 coach mode resumes for F7-F9, and Ethan reviews and may rewrite `route()`. | Ethan writes `route()` before Oct 27 (not enough time with F5 and F6 left) | Ethan |
 | 2026-10-22 | Router design | LLM classification with a prompt built from `kb_descriptions`; rules: usually one KB, both only if the answer needs both, none if neither can answer; 4 few-shot examples (datasheet, policy, both, off-topic); reply `{"kb_ids": [...], "reason": "..."}`, fences stripped; an invalid reply (unparseable, wrong shape, unknown or duplicate id, more than 2) → every configured KB with `fallback: true`; `LlmUnavailableError` propagates | Embedding similarity to the KB descriptions (thresholds for off-topic and "both" can't be tuned without labeled data; see ROUTER_EXPLAINED.md) | Ethan |
 | 2026-10-22 | Router details | Few-shot examples are shown only if every KB they name is configured; returned ids are in config order; no repair of bad replies (an unknown id isn't fuzzy-matched) (Claude, small call) | Always show all 4 examples (would name KBs that aren't configured) | Ethan |
@@ -382,6 +422,19 @@ are sentry-sdk, the opentelemetry SDK and exporters, fastapi-cli and fastapi-clo
 
 ## Known issues
 
+- UI (F5): the KB table at the top of the Documents page refreshes only on a full app rerun
+  (when polling starts or stops, or on any click). The status table below it refreshes every
+  2 s while needed.
+- UI (F5): `ui/ui_messages.py` copies the canonical error codes as strings, because the UI may
+  not import the backend. A new code added in the error model needs a line there too.
+  Otherwise the UI shows the API's own message, which is still readable.
+- UI (F5): `.streamlit/config.toml` is read only when Streamlit starts from the repo root, and
+  its `maxUploadSize = 25` must be changed together with `INGESTION_MAX_FILE_SIZE_MB`.
+- UI test output prints "missing ScriptRunContext" warnings from Streamlit's AppTest. It's
+  expected noise, not a failure.
+- The source snippets from `/ask` can start mid-word ("atasheet 2. Mechanical ..."), because the
+  snippet is the start of an overlapping 1000-character chunk. This is an API snippet issue,
+  not a UI one, and cosmetic.
 - *(Fixed 2026-10-22)* A Gemini 504 `DEADLINE_EXCEEDED` wasn't retried and became a 500. It is
   now retried like a 503 and ends as 503 `llm_unavailable`.
 - `gemini-3.8-flash` rejects thinking level `minimal` (400). The default model is now
@@ -466,14 +519,11 @@ For Erynn:
    Streamlit need 3.9 or later. *Recommendation:* yes, before F2 lands.
 3. `.idea/` is tracked, so machine-specific IDE settings are in the repo.
    *Recommendation:* untrack it and add `.idea/` to `.gitignore`.
-4. Will you build the F5 Streamlit UI? F1's API contract is in SPEC.md section 2 and at
-   `/docs`. *Recommendation:* review the endpoints and the F1 changes to your modules
-   (listed in the F1 session summary) before F5.
+4. *(Resolved 2026-10-22)* Ethan had Claude build F5 for the demo. Please review the F5 PR
+   (`ui/`), especially the Documents page, since you know the upload and status services
+   best.
 5. F4 changed two shared things: `GET /kbs` entries gained `name` and `description`, and the
-   error model gained `llm_unavailable` (503). `/ask`'s response shape is in SPEC section 2
-   for the F5 Ask page. *Recommendation:* show `answer`, the `cited` sources first, the
-   routed KB names, a "routing fell back to all KBs" note when `routing_fallback` is true, and a
-   "busy, try again" state for 503.
+   error model gained `llm_unavailable` (503). F5's Ask page uses both.
 
 For Ethan:
 6. The old CLAUDE.md listed MCP as a consumer of the knowledge layer, but no feature
@@ -498,6 +548,7 @@ paused (2026-10-22 decision) are.
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-22 | All of `ui/` (`app.py`, `ui_config.py`, `ui_api_client.py`, `ui_messages.py`, `views/documents.py`, `views/ask.py`, `tests/ui_fakes.py`, `tests/test_ui_api_client.py`, `test_ui_messages.py`, `test_ui_pages.py`, `test_ui_no_backend_imports.py`, `test_ui_smoke.py`); `.streamlit/config.toml`; the UI lines in `requirements.txt`, `.env.example` and `ruff.toml`; SPEC §2/§4 and AGENTS.md check edits | Claude Code | Ethan (to review), Erynn (PR) | F5 |
 | 2026-10-22 | 504 in `RETRYABLE_STATUS_CODES` (`agent_gemini.py`); `_resolve_thinking`, `_resolve_timeout`, new defaults and fields in `agent_config.py`; timeout in `build_llm`; `ANSWER_THINKING` and the `thinking` argument of `answer_question`; `ROUTER_THINKING = "minimal"` and the `thinking` argument of **`route()`**; thinking wiring in `/ask` (`api_app.py`); `.env.example`; tests in `test_agent_gemini.py` (2 new), `test_api_ask.py` (2 new, scripted routers take `thinking`), `test_agent_config.py` (3 new, defaults extended), `test_agent_answer.py` (1 new), `test_agent_router.py` (1 new, `minimal` pinned), `test_agent_llm.py`; SPEC and ROUTER_EXPLAINED edits | Claude Code | Ethan (to review) | F4 reliability follow-up |
 | 2026-10-22 | **`route()`** and the rest of `backend/app/agent/agent_router.py` (routing prompt, examples, `build_routing_instruction`, `parse_routing_reply`); per-call `thinking` in `agent_llm.py` (`THINKING_LEVELS`, `check_thinking`, `UsageRecorder`) and `agent_gemini.py`; `FakeLlm.thinking_levels`; tests in `test_agent_router.py` (decorators removed, 11 new), `test_agent_gemini.py` (2 new), `test_agent_llm.py` (1 new), `test_api_ask.py` (501 test now patches `route`, 1 new real-router test); `docs/ROUTER_EXPLAINED.md`; MANIFEST rows; AGENTS.md and SPEC.md edits | Claude Code | Ethan (to review after Oct 27; may rewrite `route()`) | F4 routing, a coach-mode piece built while coach mode was paused |
 | 2026-10-20 | `backend/app/agent/agent_llm.py`, `agent_gemini.py`, `agent_config.py`, `agent_answer.py`, `agent_router.py` (the interface and docstring only; the body will be Ethan's); `config/kb_descriptions.json`; `POST /ask`, `AskRequest`, `_checked_routing`, the `/kbs` name and description, and the agent wiring in `api_app.py`; `Retry-After` support and the 501/503 mappings in `api_errors.py`; `llm_unavailable` in the error model; tests `agent_fakes.py`, `test_agent_llm.py`, `test_agent_gemini.py`, `test_agent_config.py`, `test_agent_answer.py`, `test_agent_router.py`, `test_api_ask.py`, plus one test in `test_ingestion_error_model.py`; the requirements.txt LLM group; `.env.example` | Claude Code | Ethan (to review) | F4 plumbing |

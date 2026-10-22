@@ -1,0 +1,9 @@
+# Streamlit settings, read when Streamlit starts from the repo root (docs/SPEC.md, section 2).
+[browser]
+# Don't send usage statistics to Streamlit.
+gatherUsageStats = false
+
+[server]
+# Matches the API's default per-file limit (INGESTION_MAX_FILE_SIZE_MB=25), so the
+# uploader's "per file" hint is true. Change both together.
+maxUploadSize = 25

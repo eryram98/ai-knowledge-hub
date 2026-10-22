@@ -1,4 +1,4 @@
-# Ruff lint config. Run: .venv\Scripts\python -m ruff check backend
+# Ruff lint config. Run: .venv\Scripts\python -m ruff check backend ui
 line-length = 120
 target-version = "py311"
 
