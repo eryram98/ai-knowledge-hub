@@ -78,7 +78,8 @@ is added.
 copy .env.example .env    # then set GEMINI_API_KEY and check the KB IDs
 .venv\Scripts\python -m unittest discover -s backend\tests
 .venv\Scripts\python -m unittest discover -s ui\tests     # UI tests + headless smoke test (F5)
-.venv\Scripts\python -m ruff check backend ui
+.venv\Scripts\python -m unittest discover -s scripts\tests  # seed and eval script tests (F6)
+.venv\Scripts\python -m ruff check backend ui scripts
 .venv\Scripts\python -m uvicorn api.api_app:create_app --factory --app-dir backend\app --port 8000
 .venv\Scripts\python -m streamlit run ui\app.py          # UI (F5), second terminal, API must be running
 ```

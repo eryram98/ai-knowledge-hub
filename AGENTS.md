@@ -34,7 +34,8 @@ Nityanand are non-technical PMs.
   - Tests: `.venv\Scripts\python -m unittest discover -s backend\tests`
   - UI tests, including the Streamlit smoke test (the app starts headless):
     `.venv\Scripts\python -m unittest discover -s ui\tests`
-  - Lint (Ruff, rules E and F, config in `ruff.toml`): `.venv\Scripts\python -m ruff check backend ui`
+  - Script tests (seed and eval scripts, no network): `.venv\Scripts\python -m unittest discover -s scripts\tests`
+  - Lint (Ruff, rules E and F, config in `ruff.toml`): `.venv\Scripts\python -m ruff check backend ui scripts`
 - PowerShell has no `<` redirection. Pass files as arguments.
 - Run commands non-interactively and with a timeout. Only kill processes you
   started.

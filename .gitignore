@@ -231,3 +231,6 @@ chroma/
 # Streamlit agent skills (environment-specific symlinks)
 .agents/skills/developing-with-streamlit
 .claude/skills/developing-with-streamlit
+# Eval run output (the committed eval set is data/eval/eval_set.jsonl)
+data/eval/runs/
+backend/instance_backup/

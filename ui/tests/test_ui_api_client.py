@@ -51,6 +51,16 @@ class ApiClientSuccessTest(unittest.TestCase):
         self.assertEqual(client_with(handler).list_documents("hw_datasheets"), [])
         self.assertEqual(seen, ["hw_datasheets"])
 
+    def test_document_statuses_repeats_document_id(self):
+        seen = []
+
+        def handler(request):
+            seen.append((request.url.path, request.url.params.get_list("document_id")))
+            return httpx.Response(200, json={"documents": [], "is_complete": True})
+
+        self.assertTrue(client_with(handler).document_statuses(["a", "b"])["is_complete"])
+        self.assertEqual(seen, [("/documents/status", ["a", "b"])])
+
     def test_upload_sends_kb_id_and_every_file_as_multipart(self):
         bodies = []
 
