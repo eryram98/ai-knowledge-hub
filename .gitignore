@@ -234,3 +234,6 @@ chroma/
 # Eval run output (the committed eval set is data/eval/eval_set.jsonl)
 data/eval/runs/
 backend/instance_backup/
+
+# Demo launcher logs and PIDs
+logs/

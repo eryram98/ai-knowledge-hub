@@ -6,7 +6,8 @@ it unless you need that detail, and then Grep it.
 
 ## Now
 
-- **Branch:** `ethan/f6-demo`, local-only, from `main` (`0ec3924`, F0-F5 merged). F6 committed at the end of this session.
+- **Branch:** `ethan/demo-launcher`, local-only, from `ethan/f6-demo` (F6 `3418beb` is not merged to `main` yet, so merge F6 first).
+  Added `start_demo.bat`/`stop_demo.bat` (scripts in `scripts/`): double-click demo start and stop, see DEMO_SCRIPT "Quick start".
 - **Current feature:** F6 done: seed ran on the real API (7 of 8 files indexed, the RPi 5 brief rejected), eval ran once
   (routing 100%, hit@5 86%, see the table below). `scripts/`, `data/eval/eval_set.jsonl`, `docs/DEMO_SCRIPT.md`.
 - **Next:** (1) Ethan pushes `ethan/f6-demo` and opens the F6 PR. (2) Record the backup video and screenshots; rehearse
@@ -33,7 +34,7 @@ it unless you need that detail, and then Grep it.
 | F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Done | `ethan/f3-retrieval` | `2b0566e`, `c6bddbe`, `6123769` |
 | F4 | `/ask`: routing (Claude to Ethan's design), grounded Gemini answer, sources | Done | `ethan/f4-ask` | `1aa5866`, `8f8f8cd`, `4fe7ab2`, `79b878e` (PR #6) |
 | F5 | Streamlit UI: Documents and Ask pages | Done | `ethan/f5-ui` | `3e557c8` |
-| F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | Done (video not recorded) | `ethan/f6-demo` | this commit |
+| F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | Done (video not recorded) | `ethan/f6-demo` | `3418beb` |
 | F7 | Re-ranking (coach) | After Oct 27 | | |
 | F8 | Table Challenge (coach) | After Oct 27 | | |
 | F9 | Strategy recommendation (coach) | After Oct 27 | | |
@@ -46,6 +47,7 @@ Earlier work (tasks 1-3 by Erynn, extraction, chunking, kb_id) and the old task-
 
 ## Decisions (current, one line each; reasoning and superseded rows in the archive)
 
+- **Demo launcher (2026-10-26):** background processes via `cmd /c` with log redirects; PIDs in `logs/demo.pids` (git-ignored); busy ports are reported, never killed; Streamlit runs `--server.headless true` (the script opens the browser itself).
 - **Coach mode:** paused for `route()` and F4-F6 until after Oct 27; resumes for F7-F9, and Ethan reviews `route()` (Ethan, 2026-10-22).
 - **AI split:** Claude builds the plumbing; Ethan writes the coach pieces (Table Challenge, strategy recommendation, RRF and re-rank, routing).
 - **Stack:** Python 3.11 `.venv`; FastAPI (slim); SQLite, single writer, WAL, no migrations; Chroma per KB; BM25 per KB; bge-small on CPU; Gemini free tier behind a provider interface.
@@ -126,6 +128,7 @@ code is never on this list; coach pieces Claude wrote while coach mode was pause
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
+| 2026-10-26 | `scripts/start_demo.ps1`, `scripts/stop_demo.ps1`, `start_demo.bat`, `stop_demo.bat`; DEMO_SCRIPT "Quick start"; `logs/` in `.gitignore` | Claude Code | Ethan (to review) | Demo launcher |
 | 2026-10-22 | `scripts/` (`demo_common`, `seed_corpus`, `run_eval`, 2 test files); `data/eval/eval_set.jsonl`; `docs/DEMO_SCRIPT.md`; `ApiClient.document_statuses` and its test; `ruff.toml`, `.gitignore`, AGENTS.md and SPEC.md check lines | Claude Code | Ethan (to review) | F6 |
 | 2026-10-22 | All of `ui/` (app, config, API client, messages, both views, 6 test files); `.streamlit/config.toml`; UI lines in `requirements.txt`, `.env.example`, `ruff.toml`; SPEC and AGENTS.md check edits; `/finish-feature` SKILL.md; this trim and `PROGRESS_ARCHIVE.md` | Claude Code | Ethan (to review), Erynn (PR) | F5 and docs |
 | 2026-10-22 | 504 retry (`agent_gemini.py`); thinking and timeout config (`agent_config.py`); `thinking` in `answer_question`, **`route()`** and `/ask`; `.env.example`; tests in 6 agent/API test files; SPEC and ROUTER_EXPLAINED edits | Claude Code | Ethan (to review) | F4 reliability follow-up |

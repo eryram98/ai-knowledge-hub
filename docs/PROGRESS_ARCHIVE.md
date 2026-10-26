@@ -10,6 +10,12 @@ entries go at the top of the "Session log (archived)" section below this line.
 
 New entries go here, newest first. The snapshot below keeps its own older session log.
 
+### 2026-10-26: demo launcher (branch `ethan/demo-launcher`, from `ethan/f6-demo`)
+
+- Added `scripts/start_demo.ps1` (-Warmup), `scripts/stop_demo.ps1`, root `start_demo.bat`/`stop_demo.bat`, DEMO_SCRIPT "Quick start", `logs/` ignore. No app code changed; checks reused from session start (backend 354 OK/3 skipped, ui 41 OK, scripts OK, Ruff clean).
+- Real run from another cwd: API and UI up, `/kbs` and `:8501` 200, PIDs file written. Second start refused naming the port holders, PIDs file untouched. Stop freed both ports and removed the file; a repeat stop says nothing to stop. Missing `.venv`, `.env` and empty key each exit 1 with a message (tested in a temp copy).
+- Warm-up `/ask` took 77 s (Gemini slow, as on 10-22) and printed the backup-video warning. 2 real Gemini calls.
+
 ### 2026-10-22: F6 build (branch `ethan/f6-demo`)
 
 - Built the seed and eval scripts, the 8-question eval set and `docs/DEMO_SCRIPT.md`. Checks on `main` before the work:
