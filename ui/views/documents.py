@@ -12,6 +12,8 @@ from ui_api_client import ApiClientError
 POLL_SECONDS = 2
 POLLING_KEY = "docs_polling"
 UPLOAD_RESULT_KEY = "docs_upload_result"
+DELETE_RESULT_KEY = "docs_delete_result"
+BUSY_STATUSES = ("queued", "processing")
 
 
 def show_client_error(exc):
@@ -87,6 +89,63 @@ def show_upload_result():
         st.dataframe(result["rows"], hide_index=True, width="stretch")
 
 
+def delete_label(document):
+    return "{0} ({1}, uploaded {2})".format(
+        document["original_filename"], ui_messages.status_label(document["ingestion_status"]),
+        format_timestamp(document.get("upload_timestamp")) or "unknown")
+
+
+def delete_document(client, kb_id, document):
+    """Button callback: call the API, keep the outcome for show_delete_result, and reset the confirmation."""
+    name = document["original_filename"]
+    try:
+        client.delete_document(kb_id, document["document_id"])
+        result = ("success", "Deleted {0}.".format(name))
+    except ApiClientError as exc:
+        if exc.code == "not_found":
+            result = ("info", "{0} no longer exists. It may already have been deleted.".format(name))
+        else:
+            level, text = ui_messages.client_error_text(exc)
+            result = (level, "Couldn't delete {0}. {1}".format(name, text))
+    st.session_state[DELETE_RESULT_KEY] = result
+    st.session_state["docs_delete_confirm_" + kb_id] = False
+    st.session_state.pop("docs_delete_id_" + kb_id, None)
+
+
+def show_delete_result():
+    result = st.session_state.pop(DELETE_RESULT_KEY, None)
+    if result is None:
+        return
+    level, text = result
+    {"success": st.success, "info": st.info, ui_messages.LEVEL_WARNING: st.warning}.get(level, st.error)(text)
+
+
+def delete_section(client, kb):
+    """Pick a document, tick the confirmation, press Delete. Documents still queued or processing can't be deleted."""
+    st.subheader("Delete a document")
+    show_delete_result()
+    try:
+        documents = client.list_documents(kb["kb_id"])
+    except ApiClientError as exc:
+        show_client_error(exc)
+        return
+    if not documents:
+        st.caption("Nothing to delete in {0}.".format(kb["name"]))
+        return
+    by_id = {document["document_id"]: document for document in documents}
+    chosen_id = st.selectbox("Document to delete", options=list(by_id), key="docs_delete_id_" + kb["kb_id"],
+                             format_func=lambda value: delete_label(by_id[value]))
+    chosen = by_id[chosen_id]
+    busy = chosen["ingestion_status"] in BUSY_STATUSES
+    if busy:
+        st.caption("This document is still {0}. Wait until it has finished, then delete it.".format(
+            chosen["ingestion_status"]))
+    confirmed = st.checkbox("Yes, permanently delete this document and its search entries. This can't be undone.",
+                            key="docs_delete_confirm_" + kb["kb_id"], disabled=busy)
+    st.button("Delete document", disabled=busy or not confirmed, on_click=delete_document,
+              args=(client, kb["kb_id"], chosen))
+
+
 client = ui_api_client.get_client()
 st.title("Documents")
 
@@ -144,3 +203,4 @@ def status_table(kb_id):
 
 
 status_table(kb_id)
+delete_section(client, selected_kb)

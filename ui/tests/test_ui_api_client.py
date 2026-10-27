@@ -78,6 +78,26 @@ class ApiClientSuccessTest(unittest.TestCase):
         self.assertIn(b'filename="b.md"', body)
         self.assertIn(b"alpha", body)
 
+    def test_delete_document_sends_delete_to_the_kb_document_path(self):
+        seen = []
+
+        def handler(request):
+            seen.append((request.method, request.url.path))
+            return httpx.Response(200, json={"document_id": "doc-1", "kb_id": "it_policies", "deleted": True})
+
+        result = client_with(handler).delete_document("it_policies", "doc-1")
+        self.assertEqual(seen, [("DELETE", "/kbs/it_policies/documents/doc-1")])
+        self.assertTrue(result["deleted"])
+
+    def test_delete_document_conflict_and_missing_keep_their_codes(self):
+        for status_code, code in ((409, "document_busy"), (404, "not_found")):
+            with self.subTest(code=code):
+                api = client_with(lambda request: canonical(status_code, code, "msg"))
+                with self.assertRaises(ApiClientError) as caught:
+                    api.delete_document("it_policies", "doc-1")
+                self.assertEqual((caught.exception.kind, caught.exception.code, caught.exception.status_code),
+                                 (KIND_API, code, status_code))
+
     def test_ask_posts_the_question_as_json(self):
         bodies = []
 
