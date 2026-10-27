@@ -8,6 +8,8 @@ plain language:
 - "api": any other error response, with the canonical {code, message, details}
 """
 
+from urllib.parse import quote
+
 import httpx
 
 import ui_config
@@ -55,6 +57,11 @@ class ApiClient:
         """Batch status for the given document IDs (counts, per-document status, is_complete)."""
         params = [("document_id", document_id) for document_id in document_ids]
         return self._request("GET", "/documents/status", ui_config.DEFAULT_TIMEOUT_SECONDS, params=params)
+
+    def delete_document(self, kb_id, document_id):
+        """Hard-delete one document of a KB. 404 not_found if it is gone, 409 document_busy while it is processing."""
+        path = "/kbs/{0}/documents/{1}".format(quote(kb_id, safe=""), quote(document_id, safe=""))
+        return self._request("DELETE", path, ui_config.DEFAULT_TIMEOUT_SECONDS)
 
     def ask(self, question):
         return self._request("POST", "/ask", ui_config.ASK_TIMEOUT_SECONDS, json={"question": question})

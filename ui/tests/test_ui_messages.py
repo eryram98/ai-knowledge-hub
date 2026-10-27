@@ -13,7 +13,7 @@ from ui_api_client import KIND_API, KIND_BUSY, KIND_CONNECTION, KIND_TIMEOUT, Ap
 CANONICAL_CODES = (
     "unsupported_format", "unreadable_file", "extraction_failure", "validation_failed", "file_too_large",
     "batch_limit_exceeded", "duplicate_blocked", "internal_failure", "unknown_kb", "empty_content", "not_found",
-    "indexing_failure", "not_implemented", "llm_unavailable",
+    "indexing_failure", "not_implemented", "llm_unavailable", "document_busy",
 )
 
 

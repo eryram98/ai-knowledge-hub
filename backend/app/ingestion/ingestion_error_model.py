@@ -18,6 +18,7 @@ ERROR_NOT_FOUND = "not_found"
 ERROR_INDEXING_FAILURE = "indexing_failure"
 ERROR_NOT_IMPLEMENTED = "not_implemented"
 ERROR_LLM_UNAVAILABLE = "llm_unavailable"
+ERROR_DOCUMENT_BUSY = "document_busy"
 
 INGESTION_ERROR_CODES = (
     ERROR_UNSUPPORTED_FORMAT,
@@ -34,6 +35,7 @@ INGESTION_ERROR_CODES = (
     ERROR_INDEXING_FAILURE,
     ERROR_NOT_IMPLEMENTED,
     ERROR_LLM_UNAVAILABLE,
+    ERROR_DOCUMENT_BUSY,
 )
 
 DEFAULT_ERROR_MESSAGES = {
@@ -51,6 +53,7 @@ DEFAULT_ERROR_MESSAGES = {
     ERROR_INDEXING_FAILURE: "Embedding or indexing failed for this document.",
     ERROR_NOT_IMPLEMENTED: "This step is not implemented yet.",
     ERROR_LLM_UNAVAILABLE: "The language model service is busy. Please try again in a minute.",
+    ERROR_DOCUMENT_BUSY: "The document is still being processed. Try again when it has finished.",
 }
 
 

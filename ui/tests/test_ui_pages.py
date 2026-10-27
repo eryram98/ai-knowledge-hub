@@ -142,6 +142,58 @@ class DocumentsPageTest(PageTestCase):
         at.run()
         self.assertIn(ui_messages.ERROR_TEXT["batch_limit_exceeded"], all_text(at))
 
+    def delete_button(self, at):
+        return next(button for button in at.button if button.label == "Delete document")
+
+    def test_delete_needs_the_confirmation_then_calls_the_api(self):
+        client = FakeClient(documents=[document("a.pdf", "success"), document("b.pdf", "success")])
+        at = self.run_page(DOCUMENTS_PATH, client)
+        self.assertTrue(self.delete_button(at).disabled)
+        self.assertEqual(at.selectbox[1].options[0], "a.pdf (✅ Ready, uploaded 2026-10-22 10:00:00 UTC)")
+        at.selectbox[1].select("doc-b.pdf")
+        at.run()
+        at.checkbox[0].check()
+        at.run()
+        self.assertFalse(self.delete_button(at).disabled)
+        self.assertNotIn("delete_document", [call[0] for call in client.calls])
+        self.delete_button(at).click()
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertIn(("delete_document", "it_policies", "doc-b.pdf"), client.calls)
+        self.assertIn("Deleted b.pdf.", [success.value for success in at.success])
+        self.assertFalse(at.checkbox[0].value)
+        self.assertTrue(self.delete_button(at).disabled)
+        self.assertEqual(at.selectbox[1].options, [at.selectbox[1].options[0]])
+
+    def test_queued_or_processing_document_cannot_be_deleted(self):
+        at = self.run_page(DOCUMENTS_PATH, FakeClient(documents=[document("a.pdf", "processing")]))
+        self.assertIn("still processing", all_text(at))
+        self.assertTrue(at.checkbox[0].disabled)
+        self.assertTrue(self.delete_button(at).disabled)
+
+    def test_nothing_to_delete_in_an_empty_kb(self):
+        at = self.run_page(DOCUMENTS_PATH, FakeClient())
+        self.assertIn("Nothing to delete in IT policies.", all_text(at))
+        self.assertEqual([b.label for b in at.button if b.label == "Delete document"], [])
+
+    def test_delete_errors_are_shown_in_plain_language(self):
+        cases = (
+            ("document_busy", 409, ui_messages.ERROR_TEXT["document_busy"], "error"),
+            ("not_found", 404, "no longer exists", "info"),
+        )
+        for code, status_code, expected, level in cases:
+            with self.subTest(code=code):
+                error = ApiClientError("api", "api message", code=code, status_code=status_code)
+                client = FakeClient(documents=[document("a.pdf", "success")], errors={"delete_document": error})
+                at = self.run_page(DOCUMENTS_PATH, client)
+                at.checkbox[0].check()
+                at.run()
+                self.delete_button(at).click()
+                at.run()
+                self.assertFalse(at.exception)
+                shown = " ".join(str(element.value) for element in (at.error if level == "error" else at.info))
+                self.assertIn(expected, shown)
+
     def test_api_down_shows_the_start_command(self):
         error = ApiClientError(KIND_CONNECTION, "Can't reach the API at http://127.0.0.1:8000.")
         at = self.run_page(DOCUMENTS_PATH, FakeClient(errors={"list_kbs": error}))

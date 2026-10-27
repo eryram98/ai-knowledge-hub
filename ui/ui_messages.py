@@ -27,6 +27,7 @@ ERROR_TEXT = {
     "indexing_failure": "The file was read, but indexing it for search failed.",
     "not_implemented": "This step isn't implemented on the server yet.",
     "llm_unavailable": "The language model is busy or rate-limited right now.",
+    "document_busy": "This document is still being processed. Wait until it has finished, then delete it.",
 }
 
 # Reasons the server writes without a dedicated code, with a clearer text.

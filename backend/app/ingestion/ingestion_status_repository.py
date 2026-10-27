@@ -12,6 +12,10 @@ from ingestion.ingestion_status_constants import (
     INGESTION_STATUS_SUCCESS, INGESTION_STATUS_FAILED,
 )
 
+# Results of delete_document.
+DELETE_DELETED = "deleted"
+DELETE_NOT_FOUND = "not_found"
+DELETE_BUSY = "busy"
 
 DEFAULT_DATABASE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -263,5 +267,37 @@ class SQLiteIngestionStatusRepository(object):
                 (document_id,),
             ).fetchall()
             return [dict(row) for row in rows]
+        finally:
+            connection.close()
+
+    def delete_document(self, document_id):
+        """Delete a document and its history, chunks and text in one transaction (hard delete).
+
+        Returns DELETE_DELETED, DELETE_NOT_FOUND, or DELETE_BUSY when the
+        document is queued or processing (nothing is changed then). The busy
+        check runs under BEGIN IMMEDIATE, so a worker claim can't slip in
+        between the check and the delete. Chunk and text rows belong to the artifact
+        repository; they are deleted only if its tables exist.
+        """
+        connection = self._connect()
+        try:
+            with connection:
+                # Take the write lock before the busy check, so a worker claim can't land between check and delete.
+                connection.execute("BEGIN IMMEDIATE")
+                busy = connection.execute(
+                    "SELECT 1 FROM ingestion_documents WHERE document_id = ? AND ingestion_status IN (?, ?)",
+                    (document_id, INGESTION_STATUS_QUEUED, INGESTION_STATUS_PROCESSING),
+                ).fetchone()
+                if busy is not None:
+                    return DELETE_BUSY
+                tables = {row["name"] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'")}
+                for table in ("document_chunks", "document_texts"):
+                    if table in tables:
+                        connection.execute("DELETE FROM {0} WHERE document_id = ?".format(table), (document_id,))
+                connection.execute("DELETE FROM ingestion_status_history WHERE document_id = ?", (document_id,))
+                deleted = connection.execute(
+                    "DELETE FROM ingestion_documents WHERE document_id = ?", (document_id,)).rowcount
+            return DELETE_DELETED if deleted else DELETE_NOT_FOUND
         finally:
             connection.close()

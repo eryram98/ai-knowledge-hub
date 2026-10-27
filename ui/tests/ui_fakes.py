@@ -78,6 +78,11 @@ class FakeClient:
         self._call("upload", kb_id, files)
         return self.upload_response
 
+    def delete_document(self, kb_id, document_id):
+        self._call("delete_document", kb_id, document_id)
+        self.documents = [d for d in self.documents if d["document_id"] != document_id]
+        return {"document_id": document_id, "kb_id": kb_id, "deleted": True}
+
     def ask(self, question):
         self._call("ask", question)
         return self.ask_response

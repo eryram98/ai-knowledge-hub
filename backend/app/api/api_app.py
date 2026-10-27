@@ -20,6 +20,7 @@ routed KBs, merges with RRF and answers from the merged chunks with the LLM
 
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -48,6 +49,7 @@ from indexing.indexing_vector_index import ChromaVectorIndex
 from ingestion.ingestion_artifact_repository import SQLiteArtifactRepository
 from ingestion.ingestion_config_manager import IngestionConfig
 from ingestion.ingestion_error_model import (
+    ERROR_DOCUMENT_BUSY,
     ERROR_INTERNAL_FAILURE,
     ERROR_LLM_UNAVAILABLE,
     ERROR_NOT_FOUND,
@@ -62,7 +64,12 @@ from ingestion.ingestion_status_constants import (
     INGESTION_STATUS_QUEUED,
     INGESTION_STATUSES,
 )
-from ingestion.ingestion_status_repository import DEFAULT_DATABASE_PATH, SQLiteIngestionStatusRepository
+from ingestion.ingestion_status_repository import (
+    DEFAULT_DATABASE_PATH,
+    DELETE_BUSY,
+    DELETE_DELETED,
+    SQLiteIngestionStatusRepository,
+)
 from ingestion.ingestion_status_service import IngestionStatusService
 from ingestion.ingestion_upload_service import IngestionUploadService, UploadFileInput
 from ingestion.ingestion_worker import start_background_worker
@@ -71,6 +78,8 @@ from retrieval.retrieval_config import RetrievalConfig
 from retrieval.retrieval_retriever import BASELINE_CHUNKER, SOURCE_KEYWORD, SOURCE_VECTOR, Retriever
 
 LOGGER = logging.getLogger(__name__)
+
+DOCUMENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 
 # backend/instance/uploads/, next to the dev database (git-ignored).
 DEFAULT_UPLOAD_DIR = os.path.join(os.path.dirname(DEFAULT_DATABASE_PATH), "uploads")
@@ -146,6 +155,21 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
     upload_service = IngestionUploadService(config=config, status_repository=status_repository)
     status_service = IngestionStatusService(status_repository)
     job_queue = InMemoryIngestionJobQueue()
+
+    def _clean_up_deleted_document(kb_id, document_id):
+        """Steps 2-4 of a delete; each runs even if an earlier one fails. Returns the names of failed steps."""
+        failed = []
+        for name, step in (
+            ("vectors", lambda: vector_index.delete_document(kb_id, document_id)),
+            ("keyword index", lambda: keyword_index.invalidate(kb_id)),
+            ("stored file", lambda: remove_upload_dir(upload_root, document_id)),
+        ):
+            try:
+                step()
+            except Exception:
+                LOGGER.exception("Delete %s: cleanup of %s failed", document_id, name)
+                failed.append(name)
+        return failed
 
     @asynccontextmanager
     async def lifespan(app):
@@ -271,6 +295,44 @@ def create_app(config=None, status_repository=None, artifact_repository=None, up
                 ERROR_NOT_FOUND, details="Unknown document: {0}".format(document_id), field="document_id",
             ))
         return status
+
+    @app.delete("/kbs/{kb_id}/documents/{document_id}")
+    async def delete_document(kb_id: str, document_id: str):
+        """Hard-delete a document: SQLite rows first (the source of truth), then Chroma, BM25 and the stored file.
+
+        404 for an unknown document, or one that belongs to another KB (nothing
+        is touched then). 409 document_busy while it is queued or processing.
+        An ID that exists in no KB is a true orphan: its leftover vectors and
+        upload are cleaned up before the 404, so a repeated delete finishes an
+        interrupted one. Every cleanup step is safe to re-run.
+        """
+        kb_id, kb_error = upload_service.resolve_kb_id(kb_id)
+        if kb_error is not None:
+            raise ApiError(kb_error)
+        # The ID names a directory under the upload root, so only the generated shape (doc-<hex>) is accepted.
+        if not DOCUMENT_ID_PATTERN.match(document_id):
+            raise ApiError(build_ingestion_error(
+                ERROR_VALIDATION_FAILED, details="document_id has an invalid format", field="document_id"))
+        not_found = build_ingestion_error(
+            ERROR_NOT_FOUND, details="Unknown document in {0}: {1}".format(kb_id, document_id), field="document_id")
+        record = await run_in_threadpool(status_repository.get_document, document_id)
+        if record is not None and record["kb_id"] != kb_id:
+            raise ApiError(not_found)
+        if record is not None:
+            outcome = await run_in_threadpool(status_repository.delete_document, document_id)
+            if outcome == DELETE_BUSY:
+                raise ApiError(build_ingestion_error(
+                    ERROR_DOCUMENT_BUSY, details="Document {0} is still queued or processing".format(document_id),
+                    field="document_id"))
+        failed_steps = await run_in_threadpool(_clean_up_deleted_document, kb_id, document_id)
+        if failed_steps:
+            raise ApiError(build_ingestion_error(
+                ERROR_INTERNAL_FAILURE,
+                details="The document record was deleted, but cleanup failed for: {0}. Delete it again to retry."
+                        .format(", ".join(failed_steps))))
+        if record is None or outcome != DELETE_DELETED:
+            raise ApiError(not_found)
+        return {"document_id": document_id, "kb_id": kb_id, "deleted": True}
 
     @app.get("/kbs")
     def list_kbs():
