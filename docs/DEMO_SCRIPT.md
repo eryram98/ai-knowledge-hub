@@ -12,6 +12,16 @@ Follows SPEC §7 ("Demo script"). About 8 minutes. Questions come from `data/eva
 4. Cache the models and go offline for the embedder: run one question first, then `$env:HF_HUB_OFFLINE='1'`.
 5. Rehearse the five steps twice, with a stopwatch on step 3.
 
+## Quick start
+
+Double-click `start_demo.bat` in the repo root. It checks `.venv`, `.env` and ports 8000/8501, starts the API and
+the UI in the background (logs in `logs\api.log` and `logs\ui.log`), waits for `/kbs`, sends the warm-up question
+below, prints how long it took (a warning over 10 s means consider the backup video) and opens
+http://localhost:8501. Double-click `stop_demo.bat` when done: it stops only the processes it started.
+If it reports a port in use, it names the process and exits without killing anything.
+
+The manual two-terminal start below still works and is the fallback.
+
 ## Startup (two terminals, repo root, PowerShell)
 
 ```powershell
