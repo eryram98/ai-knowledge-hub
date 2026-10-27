@@ -6,30 +6,11 @@ it unless you need that detail, and then Grep it.
 
 ## Now
 
-<<<<<<< HEAD
-- **Branch:** `ethan/delete-document`, local-only, from `main` (`01b7a2a`, F0-F6 merged). Committed at the end of this session.
-- **Current feature:** delete a document (outside SPEC's F-list): `DELETE /kbs/{kb_id}/documents/{document_id}` plus a
-  Delete section on the Documents page. Plan: status-repository delete in one transaction, then Chroma, BM25, upload dir;
-  404 and 409 `document_busy`. Risks: the worker's own BM25 invalidate can land mid-delete (harmless).
-=======
-- **Branch:** `ethan/demo-launcher`, local-only, from `ethan/f6-demo` (F6 `3418beb` is not merged to `main` yet, so merge F6 first).
-  Added `start_demo.bat`/`stop_demo.bat` (scripts in `scripts/`): double-click demo start and stop, see DEMO_SCRIPT "Quick start".
-- **Current feature:** F6 done: seed ran on the real API (7 of 8 files indexed, the RPi 5 brief rejected), eval ran once
-  (routing 100%, hit@5 86%, see the table below). `scripts/`, `data/eval/eval_set.jsonl`, `docs/DEMO_SCRIPT.md`.
->>>>>>> 63c0ce1851ea7d36f4e07dcf85897fcbf565a5ab
-- **Next:** (1) Ethan pushes `ethan/f6-demo` and opens the F6 PR. (2) Record the backup video and screenshots; rehearse
-  `docs/DEMO_SCRIPT.md` twice, including the q04 table step. (3) Fill in the blank MANIFEST URLs. (4) After Oct 27: F7 re-ranking.
-- **Ethan by hand:** upload a small TXT on the Documents page (`backend/instance_backup/` is your copy); stop the API
-  and ask to see the start-command error. Your `.env` line 11 points at the deleted `docs/decisions.md`.
-- **Countdown (2026-10-22):** 5 days to the progress demo (2026-10-27), 47 to the final (2026-12-08).
-  At risk:
-  1. Demo rehearsal and the backup video remain.
-  2. Gemini latency varies: `/ask` took 1-2 s in the morning but 6-29 s that night with no
-     retries. Warm up with one question before the demo (it also loads bge-small, about 10 s).
-  3. Free-tier quota: each `/ask` is 2 calls (off-topic 1); the F6 eval is about 16 calls.
-  4. The install is about 1.6 GB with Streamlit, plus bge-small (128 MB). Cache both on the demo
-     laptop early and use `HF_HUB_OFFLINE=1`.
-  5. Baseline retrieval splits datasheet tables. Pick demo questions carefully.
+- **Branch:** `docs/fix-progress-conflict`, local-only, from `main` (`66637b1`). Docs only: resolves the conflict markers `73e5c63` left in this file.
+- **Current feature:** none. F0-F6, the demo launcher (PR #10) and delete document (PR #11) are merged to `main`; the Oct 27 progress demo is done.
+- **Next:** (1) F7 re-ranking (coach mode: Ethan writes it, Claude coaches). (2) Fill in the blank MANIFEST URLs. (3) Backup video still not recorded; rehearse `docs/DEMO_SCRIPT.md` (q04 table step) before 2026-12-08.
+- **Ethan by hand:** your `.env` line 11 points at the deleted `docs/decisions.md`.
+- **Live risks:** Gemini latency varies (1-79 s per `/ask`; warm up first); free-tier quota (each `/ask` is 2 calls); baseline retrieval splits datasheet tables. Final demo 2026-12-08. Old countdown: archive.
 
 ## Features
 
@@ -41,12 +22,9 @@ it unless you need that detail, and then Grep it.
 | F3 | Retrieval plumbing + merge interface (RRF by Ethan, coach) | Done | `ethan/f3-retrieval` | `2b0566e`, `c6bddbe`, `6123769` |
 | F4 | `/ask`: routing (Claude to Ethan's design), grounded Gemini answer, sources | Done | `ethan/f4-ask` | `1aa5866`, `8f8f8cd`, `4fe7ab2`, `79b878e` (PR #6) |
 | F5 | Streamlit UI: Documents and Ask pages | Done | `ethan/f5-ui` | `3e557c8` |
-<<<<<<< HEAD
-| F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | Done (video not recorded) | `ethan/f6-demo` | this commit |
-| - | Delete a document (API + UI), added 2026-10-27 | Done | `ethan/delete-document` | this commit |
-=======
-| F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | Done (video not recorded) | `ethan/f6-demo` | `3418beb` |
->>>>>>> 63c0ce1851ea7d36f4e07dcf85897fcbf565a5ab
+| F6 | Demo readiness: seed, eval set and script, demo script, fallbacks | Done (video not recorded) | `ethan/f6-demo` | `3418beb` (PR #9) |
+| - | Demo launcher: `start_demo.bat`, `stop_demo.bat`, added 2026-10-26 | Done | `ethan/demo-launcher` | `153dff4` (PR #10) |
+| - | Delete a document (API + UI), added 2026-10-27 | Done | `ethan/delete-document` | `74198cd` (PR #11) |
 | F7 | Re-ranking (coach) | After Oct 27 | | |
 | F8 | Table Challenge (coach) | After Oct 27 | | |
 | F9 | Strategy recommendation (coach) | After Oct 27 | | |
@@ -59,11 +37,8 @@ Earlier work (tasks 1-3 by Erynn, extraction, chunking, kb_id) and the old task-
 
 ## Decisions (current, one line each; reasoning and superseded rows in the archive)
 
-<<<<<<< HEAD
 - **Delete document (Ethan, 2026-10-27):** hard delete, in order: SQLite rows (the source of truth), Chroma vectors by `document_id`, BM25 invalidate, stored upload file; each cleanup step safe to re-run; 404 unknown, 409 while queued or processing. Rejected: soft delete (a deleted-status filter in every read path adds risk and there's no recovery need yet; revisit with versioning in November) and vectors-first (a crash would leave a document that looks present but returns nothing; SQLite-first leaves only orphaned index entries a re-run can clean).
-=======
 - **Demo launcher (2026-10-26):** background processes via `cmd /c` with log redirects; PIDs in `logs/demo.pids` (git-ignored); busy ports are reported, never killed; Streamlit runs `--server.headless true` (the script opens the browser itself).
->>>>>>> 63c0ce1851ea7d36f4e07dcf85897fcbf565a5ab
 - **Coach mode:** paused for `route()` and F4-F6 until after Oct 27; resumes for F7-F9, and Ethan reviews `route()` (Ethan, 2026-10-22).
 - **AI split:** Claude builds the plumbing; Ethan writes the coach pieces (Table Challenge, strategy recommendation, RRF and re-rank, routing).
 - **Stack:** Python 3.11 `.venv`; FastAPI (slim); SQLite, single writer, WAL, no migrations; Chroma per KB; BM25 per KB; bge-small on CPU; Gemini free tier behind a provider interface.
@@ -72,10 +47,6 @@ Earlier work (tasks 1-3 by Erynn, extraction, chunking, kb_id) and the old task-
 - **Data:** public documents only in `data/corpus/<kb_id>/` (git-ignored), with `MANIFEST.md` committed; eval set at `data/eval/eval_set.jsonl`.
 - **KBs:** `it_policies` and `hw_datasheets`, config-driven, topics pending PM confirmation; names and descriptions in `config/kb_descriptions.json`.
 - **Workflow:** AGENTS.md rules, SPEC.md as the source of truth, `ethan/<feature>` branches off `main`, ask before push, merge or PR. Repo lives in `C:\dev` (not OneDrive).
-- **F5 (details in the archive):** `streamlit==1.65.0`; `ui/` is an HTTP-only client with its own tests; the status table polls every 2 s only while needed; `.streamlit/config.toml` sets 25 MB and no usage stats.
-- **F5 Ask page:** latency measured in the UI; every source shown, cited first; `$` escaped; 180 s `/ask` timeout.
-- **F6 scripts:** `scripts/` reuses `ui/ui_api_client.py` over HTTP. Seed asks before wiping, refuses while an API runs, and exits 1 only on a `failed` document (a rejected file is listed). Eval asks before the LLM calls.
-- **F6 metrics:** routing correct = routed set equals expected (`none` = empty, so a fallback to all KBs is wrong); hit@5 = every expected source among the first 5 sources, over on-topic questions only.
 - **Model:** `gemini-3.5-flash-lite`, `minimal` thinking for both steps (`generate(..., thinking=)` sends Gemini's `thinking_level`), 20 s per-attempt timeout, all overridable in `.env`.
 - **LLM retries:** 429, 503, 504 and network errors, `LLM_MAX_RETRIES` (3) with 2/4/8 s backoff, then 503 `llm_unavailable` with `Retry-After: 30`.
 - **Router:** LLM classification from the KB descriptions with 4 few-shots and a JSON reply; an invalid reply falls back to every KB; examples only for configured KBs; no repair of bad ids.
@@ -144,11 +115,8 @@ code is never on this list; coach pieces Claude wrote while coach mode was pause
 
 | Date | Files | Tool | Reviewed by | Notes |
 |---|---|---|---|---|
-<<<<<<< HEAD
 | 2026-10-27 | `DELETE /kbs/{kb_id}/documents/{document_id}` and cleanup in `api_app.py`; `delete_document` in the status repository (Erynn's); `document_busy` in the error model and `api_errors.py`; `ApiClient.delete_document`, `document_busy` text and the Delete section on Documents; `test_api_delete_document.py` and UI test additions | Claude Code | Ethan (to review), Erynn (her repository and error model) | Delete document |
-=======
 | 2026-10-26 | `scripts/start_demo.ps1`, `scripts/stop_demo.ps1`, `start_demo.bat`, `stop_demo.bat`; DEMO_SCRIPT "Quick start"; `logs/` in `.gitignore` | Claude Code | Ethan (to review) | Demo launcher |
->>>>>>> 63c0ce1851ea7d36f4e07dcf85897fcbf565a5ab
 | 2026-10-22 | `scripts/` (`demo_common`, `seed_corpus`, `run_eval`, 2 test files); `data/eval/eval_set.jsonl`; `docs/DEMO_SCRIPT.md`; `ApiClient.document_statuses` and its test; `ruff.toml`, `.gitignore`, AGENTS.md and SPEC.md check lines | Claude Code | Ethan (to review) | F6 |
 | 2026-10-22 | All of `ui/` (app, config, API client, messages, both views, 6 test files); `.streamlit/config.toml`; UI lines in `requirements.txt`, `.env.example`, `ruff.toml`; SPEC and AGENTS.md check edits; `/finish-feature` SKILL.md; this trim and `PROGRESS_ARCHIVE.md` | Claude Code | Ethan (to review), Erynn (PR) | F5 and docs |
 | 2026-10-22 | 504 retry (`agent_gemini.py`); thinking and timeout config (`agent_config.py`); `thinking` in `answer_question`, **`route()`** and `/ask`; `.env.example`; tests in 6 agent/API test files; SPEC and ROUTER_EXPLAINED edits | Claude Code | Ethan (to review) | F4 reliability follow-up |

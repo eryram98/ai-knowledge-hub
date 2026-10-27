@@ -10,6 +10,39 @@ entries go at the top of the "Session log (archived)" section below this line.
 
 New entries go here, newest first. The snapshot below keeps its own older session log.
 
+### 2026-10-27: PROGRESS.md conflict fix (branch `docs/fix-progress-conflict`)
+
+- Merge `73e5c63` left conflict markers in PROGRESS.md. Resolved by keeping both decisions; trimmed to under 150 lines. Moved here, as they stood:
+
+Old Now / Countdown text:
+  - **Branch:** `ethan/delete-document`, local-only, from `main` (`01b7a2a`, F0-F6 merged). Committed at the end of this session.
+  - **Current feature:** delete a document (outside SPEC's F-list): `DELETE /kbs/{kb_id}/documents/{document_id}` plus a
+    Delete section on the Documents page. Plan: status-repository delete in one transaction, then Chroma, BM25, upload dir;
+    404 and 409 `document_busy`. Risks: the worker's own BM25 invalidate can land mid-delete (harmless).
+  - **Branch:** `ethan/demo-launcher`, local-only, from `ethan/f6-demo` (F6 `3418beb` is not merged to `main` yet, so merge F6 first).
+    Added `start_demo.bat`/`stop_demo.bat` (scripts in `scripts/`): double-click demo start and stop, see DEMO_SCRIPT "Quick start".
+  - **Current feature:** F6 done: seed ran on the real API (7 of 8 files indexed, the RPi 5 brief rejected), eval ran once
+    (routing 100%, hit@5 86%, see the table below). `scripts/`, `data/eval/eval_set.jsonl`, `docs/DEMO_SCRIPT.md`.
+    and ask to see the start-command error. Your `.env` line 11 points at the deleted `docs/decisions.md`.
+  - **Next (as of 2026-10-27, before this fix):** (1) Ethan pushes `ethan/f6-demo` and opens the F6 PR. (2) Record the backup video and screenshots; rehearse
+    `docs/DEMO_SCRIPT.md` twice, including the q04 table step. (3) Fill in the blank MANIFEST URLs. (4) After Oct 27: F7 re-ranking.
+  - **Ethan by hand:** upload a small TXT on the Documents page (`backend/instance_backup/` is your copy); stop the API
+  - **Countdown (2026-10-22):** 5 days to the progress demo (2026-10-27), 47 to the final (2026-12-08).
+    At risk:
+    1. Demo rehearsal and the backup video remain.
+    2. Gemini latency varies: `/ask` took 1-2 s in the morning but 6-29 s that night with no
+       retries. Warm up with one question before the demo (it also loads bge-small, about 10 s).
+    3. Free-tier quota: each `/ask` is 2 calls (off-topic 1); the F6 eval is about 16 calls.
+    4. The install is about 1.6 GB with Streamlit, plus bge-small (128 MB). Cache both on the demo
+       laptop early and use `HF_HUB_OFFLINE=1`.
+    5. Baseline retrieval splits datasheet tables. Pick demo questions carefully.
+
+Old F5/F6 decision lines:
+  - **F5 (details in the archive):** `streamlit==1.65.0`; `ui/` is an HTTP-only client with its own tests; the status table polls every 2 s only while needed; `.streamlit/config.toml` sets 25 MB and no usage stats.
+  - **F5 Ask page:** latency measured in the UI; every source shown, cited first; `$` escaped; 180 s `/ask` timeout.
+  - **F6 scripts:** `scripts/` reuses `ui/ui_api_client.py` over HTTP. Seed asks before wiping, refuses while an API runs, and exits 1 only on a `failed` document (a rejected file is listed). Eval asks before the LLM calls.
+  - **F6 metrics:** routing correct = routed set equals expected (`none` = empty, so a fallback to all KBs is wrong); hit@5 = every expected source among the first 5 sources, over on-topic questions only.
+
 ### 2026-10-26: demo launcher (branch `ethan/demo-launcher`, from `ethan/f6-demo`)
 
 - Added `scripts/start_demo.ps1` (-Warmup), `scripts/stop_demo.ps1`, root `start_demo.bat`/`stop_demo.bat`, DEMO_SCRIPT "Quick start", `logs/` ignore. No app code changed; checks reused from session start (backend 354 OK/3 skipped, ui 41 OK, scripts OK, Ruff clean).
